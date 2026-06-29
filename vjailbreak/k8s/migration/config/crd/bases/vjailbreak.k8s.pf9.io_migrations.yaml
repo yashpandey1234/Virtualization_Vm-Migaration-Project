@@ -1,0 +1,211 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: migrations.vjailbreak.k8s.pf9.io
+spec:
+  group: vjailbreak.k8s.pf9.io
+  names:
+    kind: Migration
+    listKind: MigrationList
+    plural: migrations
+    singular: migration
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.agentName
+      name: Agent Name
+      type: string
+    - jsonPath: .spec.migrationPlan
+      name: MigrationPlan
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Migration is the Schema for the migrations API that represents a single virtual machine
+          migration job from VMware to OpenStack. It tracks the complete migration lifecycle
+          including validation, data transfer, disk conversion, and cutover phases. Migration resources
+          provide detailed status monitoring, error handling, and manual intervention points like
+          cutover initiation. Each Migration is associated with a MigrationPlan and executes on a specific
+          VjailbreakNode agent, tracking progress via status updates and condition changes.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the desired state of Migration
+            properties:
+              disconnectSourceNetwork:
+                description: |-
+                  DisconnectSourceNetwork specifies whether to disconnect the source VM's network interfaces
+                  after a successful migration to prevent network conflicts. Defaults to false.
+                type: boolean
+              imageMetadata:
+                additionalProperties:
+                  type: string
+                description: |-
+                  ImageMetadata is the merged map of Cinder volume_image_metadata properties resolved
+                  from the MigrationPlan's selected VolumeImageProfiles after OS-family filtering.
+                type: object
+              initiateCutover:
+                description: InitiateCutover is the flag to initiate cutover
+                type: boolean
+              migrationPlan:
+                description: MigrationPlan is the name of the migration plan
+                type: string
+              migrationType:
+                description: MigrationType indicates whether this is a hot (live)
+                  or cold migration
+                enum:
+                - hot
+                - cold
+                - mock
+                type: string
+              networkOverrides:
+                description: NetworkOverrides is the JSON-serialized per-NIC overrides
+                  for IP and MAC preservation
+                type: string
+              podRef:
+                description: PodRef is the name of the pod
+                type: string
+              vmName:
+                description: VMName is the name of the VM getting migrated from VMWare
+                  to Openstack
+                type: string
+            required:
+            - initiateCutover
+            - migrationPlan
+            - podRef
+            - vmName
+            type: object
+          status:
+            description: Status defines the observed state of Migration
+            properties:
+              agentName:
+                description: AgentName is the name of the agent where migration is
+                  running
+                type: string
+              conditions:
+                description: Conditions is the list of conditions of the migration
+                  object pod
+                items:
+                  description: PodCondition contains details for the current condition
+                    of this pod.
+                  properties:
+                    lastProbeTime:
+                      description: Last time we probed the condition.
+                      format: date-time
+                      type: string
+                    lastTransitionTime:
+                      description: Last time the condition transitioned from one status
+                        to another.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human-readable message indicating details about
+                        last transition.
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        If set, this represents the .metadata.generation that the pod condition was set based upon.
+                        This is an alpha field. Enable PodObservedGenerationTracking to be able to use this field.
+                      format: int64
+                      type: integer
+                    reason:
+                      description: Unique, one-word, CamelCase reason for the condition's
+                        last transition.
+                      type: string
+                    status:
+                      description: |-
+                        Status is the status of the condition.
+                        Can be True, False, Unknown.
+                        More info: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle#pod-conditions
+                      type: string
+                    type:
+                      description: |-
+                        Type is the type of the condition.
+                        More info: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle#pod-conditions
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              currentDisk:
+                description: |-
+                  CurrentDisk tracks which disk is currently being copied (e.g., "0", "1")
+                  Extracted from migration pod events
+                type: string
+              phase:
+                description: Phase is the current phase of the migration
+                enum:
+                - Pending
+                - Validating
+                - ValidationFailed
+                - AwaitingDataCopyStart
+                - CopyingBlocks
+                - CopyingChangedBlocks
+                - ConvertingDisk
+                - AwaitingCutOverStartTime
+                - AwaitingAdminCutOver
+                - Succeeded
+                - Failed
+                - Unknown
+                - ConnectingToESXi
+                - CreatingInitiatorGroup
+                - CreatingVolume
+                - ImportingToCinder
+                - MappingVolume
+                - RescanningStorage
+                - XCOPYInProgress
+                - SnapshottingSourceVM
+                - AttachingDisksToProxy
+                - IdentifyingBlockDevices
+                - HotAddTransferInProgress
+                - HotAddCleanup
+                type: string
+              retryable:
+                description: |-
+                  Retryable indicates whether this migration can be retried when it fails.
+                  Set to false for VMs with RDM (Raw Device Mapping) disks that share storage,
+                  as RDM disk migration state prevents automatic retry.
+                type: boolean
+              syncWarningMessage:
+                description: |-
+                  SyncWarningMessage contains the warning message when periodic sync is in a warning state.
+                  If non-empty, indicates the sync failed but will auto-retry on next interval.
+                type: string
+              totalDisks:
+                description: TotalDisks is the total number of disks to be migrated
+                type: integer
+            required:
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

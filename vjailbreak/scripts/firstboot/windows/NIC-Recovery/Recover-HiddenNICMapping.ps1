@@ -1,0 +1,235 @@
+# Recover-HiddenNICMapping.ps1
+param(
+    [string]$OutFile = "C:\NIC-Recovery\netconfig.json",
+    [string]$LogFile = "C:\NIC-Recovery\Recover-HiddenNICMapping.log"
+)
+
+function Write-Log {
+    param([string]$Message)
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    try {
+        $logDir = Split-Path -Path $LogFile -Parent
+        if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+        "$timestamp - $Message" | Out-File -FilePath $LogFile -Append -Encoding utf8
+    } catch {
+        Write-Host "Failed to write log: $_"
+    }
+    Write-Host "$timestamp - $Message"
+}
+
+Write-Log "=== Starting Recover-HiddenNICMapping ==="
+Write-Log "PowerShell version: $($PSVersionTable.PSVersion)"
+Write-Log "OS: $([System.Environment]::OSVersion.VersionString)"
+
+function Convert-SubnetToPrefix {
+    param ([string]$Mask)
+    ($Mask -split '\.') | ForEach-Object { [Convert]::ToString([int]$_,2) } | 
+    ForEach-Object { $_.ToCharArray() } | 
+    Where-Object { $_ -eq '1' } | 
+    Measure-Object | 
+    Select-Object -ExpandProperty Count
+}
+
+function Get-Network {
+    param ([string]$IP, [int]$Prefix)
+    $ipBytes = ([System.Net.IPAddress]::Parse($IP)).GetAddressBytes()
+    $maskBytes = @(0,0,0,0)
+    if ($prefix -lt 0 -or $prefix -gt 32) { 
+        Write-Warning "Invalid prefix length $Prefix for $IP"
+    }else{
+
+    for ($i=0; $i -lt 4; $i++) {
+        $bits = [Math]::Min(8, $Prefix - ($i*8))
+        if ($bits -gt 0) { 
+            $maskBytes[$i] = [byte](0xFF -shr (8 - $bits))
+        }
+    }
+    for ($i=0; $i -lt 4; $i++) { 
+        $ipBytes[$i] = $ipBytes[$i] -band $maskBytes[$i] 
+    }
+    }
+    ([System.Net.IPAddress]$ipBytes).ToString()
+}
+
+Write-Log "Retrieving active NIC configurations..."
+$activeNics = try { 
+    Get-NetIPConfiguration -ErrorAction Stop | 
+    Where-Object { $_.IPv4Address } | 
+    ForEach-Object { 
+        foreach ($ip in $_.IPv4Address) { 
+            [PSCustomObject]@{ 
+                InterfaceAlias = $_.InterfaceAlias
+                MACAddress = $_.NetAdapter.MacAddress
+                Network = Get-Network $ip.IPAddress $ip.PrefixLength
+            } 
+        } 
+    } 
+} catch { 
+    Write-Log "Warning: Could not retrieve active NIC configurations: $($_.Exception.Message)"
+    $null 
+}
+Write-Log "Found $($activeNics.Count) active NICs with IP configuration"
+
+Write-Log "Retrieving active adapter aliases..."
+$activeAliases = try { 
+    Get-NetAdapter -ErrorAction SilentlyContinue | 
+    Select-Object -ExpandProperty InterfaceAlias 
+} catch { 
+    Write-Log "Warning: Could not retrieve active adapter aliases: $($_.Exception.Message)"
+    @() 
+}
+Write-Log "Found $($activeAliases.Count) active adapter aliases"
+
+Write-Log "Reading hidden IP configurations from registry..."
+try{
+
+$hiddenIps = [System.Collections.Generic.List[PSObject]]::new()
+$registryValues = Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces" -ErrorAction SilentlyContinue  
+foreach($regobj in $registryValues) {
+        $p = Get-ItemProperty $regobj.PsPath -ErrorAction SilentlyContinue
+        $ip = ($p.IPAddress | Where-Object { $_ -and $_ -ne '0.0.0.0' } | Select-Object -First 1)
+        $mask = ($p.SubnetMask | Select-Object -First 1)
+        if (-not $ip -or -not $mask) { 
+            Write-Log "Warning: Invalid IP or mask for GUID $($regobj.PSChildName.ToUpper())"
+            continue 
+        }
+        
+        $prefix = Convert-SubnetToPrefix $mask
+        $dns = @(($p.NameServer -split ','), ($p.DhcpNameServer -split ',')) | 
+               Where-Object { $_ -and $_.Trim() }
+        
+        Write-Log "Found hidden IP config: GUID=$($regobj.PSChildName.ToUpper()), IP=$ip, Prefix=$prefix"
+        
+        $IpInfo = [PSCustomObject]@{
+            GUID = $regobj.PSChildName.ToUpper()
+            IPAddress = $ip
+            PrefixLength = $prefix
+            Network = Get-Network $ip $prefix
+            Gateway = ($p.DefaultGateway | Select-Object -First 1)
+            DNSServers = $dns
+        }
+        Write-Host " $IpInfo"
+        $hiddenIps.Add($IpInfo)
+}
+}
+catch{
+    Write-Log "Warning: Could not read hidden IP configurations from registry: $($_.Exception.Message)"
+    $hiddenIps = [System.Collections.Generic.List[PSObject]]::new()
+}
+
+Write-Log "Found $($hiddenIPs.Count) hidden IP configurations"
+Write-Log "Active NICs dump: $($activeNics | ConvertTo-Json -Compress)"
+Write-Log "Hidden names dump: $($hiddenNames | ConvertTo-Json -Compress)"
+
+Write-Log "Reading hidden adapter names from registry..."
+$hiddenNames = Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}" -ErrorAction SilentlyContinue | 
+    ForEach-Object { 
+        $conn = Join-Path $_.PsPath "Connection"
+        if (-not (Test-Path $conn)) { return }
+        $p = Get-ItemProperty $conn -ErrorAction SilentlyContinue
+        if ($p.Name -and $p.Name -notin $activeAliases) { 
+            Write-Log "Found hidden adapter name: GUID=$($_.PSChildName.ToUpper()), Name=$($p.Name)"
+            [PSCustomObject]@{
+                GUID = $_.PSChildName.ToUpper()
+                Name = $p.Name
+            }
+        }
+    }
+Write-Log "Found $($hiddenNames.Count) hidden adapter names"
+
+Write-Log "Reading macToIP mapping file..."
+$macToIpFile = Join-Path (Split-Path -Parent $OutFile) "macToIP"
+$macToIpMap = @{}
+if (Test-Path $macToIpFile) {
+    Get-Content $macToIpFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -match '^([0-9a-fA-F:]{17}):ip:(\d+\.\d+\.\d+\.\d+)$') {
+            $mac = $matches[1].ToLower()
+            $ip = $matches[2]
+            $macToIpMap[$ip] = $mac
+            Write-Log "Loaded mapping: $ip -> $mac"
+        } else {
+            Write-Log "Warning: Skipping invalid line in macToIP: $line"
+        }
+    }
+    Write-Log "Loaded $($macToIpMap.Count) MAC-to-IP mappings from file"
+} else {
+    Write-Log "macToIP file not found at $macToIpFile - will use fallback matching"
+}
+
+Write-Log "Matching hidden IPs with hidden names and active NICs..."
+$matchedMacs = @()
+$result = foreach ($hidden in $hiddenIPs) {
+    $name = $hiddenNames | Where-Object { $_.GUID -eq $hidden.GUID }
+    if (-not $name) { 
+        Write-Log "No matching name found for GUID $($hidden.GUID)"
+        continue 
+    }
+
+    $macAddress = $null
+    $matchSource = ""
+
+    # Priority 1: Look up MAC from macToIP file by IP address
+    if ($macToIpMap.ContainsKey($hidden.IPAddress)) {
+        $macFromFile = $macToIpMap[$hidden.IPAddress]
+        # Normalize MAC format (colons to dashes for comparison with active NICs)
+        $macNormalized = $macFromFile -replace ':', '-'
+        # Verify this MAC exists in active NICs and hasn't been used yet
+        $activeMatch = $activeNics | Where-Object { $_.MACAddress -eq $macNormalized -and $_.MACAddress -notin $matchedMacs } | Select-Object -First 1
+        if ($activeMatch) {
+            $macAddress = $macNormalized
+            $matchSource = "macToIP file"
+            Write-Log "Found MAC from file for IP $($hidden.IPAddress): $macFromFile"
+        } else {
+            Write-Log "MAC $macFromFile from file not found in unused active NICs for IP $($hidden.IPAddress)"
+        }
+    }
+
+    # Priority 2: Fallback to network-based matching with active NICs
+    if (-not $macAddress) {
+        $fallbackMatch = $activeNics |
+            Where-Object { $_.Network -eq $hidden.Network -and $_.MACAddress -notin $matchedMacs } |
+            Select-Object -First 1
+
+        if ($fallbackMatch) {
+            $macAddress = $fallbackMatch.MACAddress
+            $matchSource = "network fallback"
+            Write-Log "Using fallback network matching for IP $($hidden.IPAddress): $($fallbackMatch.MACAddress)"
+        }
+    }
+
+    if (-not $macAddress) {
+        Write-Log "No matching active NIC found for IP $($hidden.IPAddress) / network $($hidden.Network) (GUID: $($hidden.GUID))"
+        continue
+    }
+
+    $matchedMacs += $macAddress
+    Write-Log "Matched: $($name.Name) -> $macAddress (Source: $matchSource, IP: $($hidden.IPAddress))"
+
+    [PSCustomObject]@{
+        InterfaceAlias = $name.Name
+        MACAddress = $macAddress
+        IPAddress = $hidden.IPAddress
+        PrefixLength = $hidden.PrefixLength
+        Gateway = if ($hidden.Gateway) { $hidden.Gateway } else { $null }
+        DNSServers = @($hidden.DNSServers)
+    }
+}
+
+if (-not $result) { 
+    Write-Log "No matching configurations found - output will be empty array"
+    $result = @() 
+} else {
+    Write-Log "Found $($result.Count) matched configurations"
+}
+
+try {
+    $result | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $OutFile
+    Write-Log "Successfully wrote configuration to $OutFile"
+} catch {
+    Write-Log "ERROR: Failed to write output file: $($_.Exception.Message)"
+    exit 1
+}
+
+Write-Log "=== Recover-HiddenNICMapping finished successfully ==="
+exit 0

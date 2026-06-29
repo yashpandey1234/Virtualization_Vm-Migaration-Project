@@ -1,0 +1,355 @@
+// Copyright © 2024 The vjailbreak authors
+
+package vcenter
+
+import (
+	"context"
+	"crypto/sha1"
+	"crypto/tls"
+	"encoding/hex"
+	"fmt"
+	"math"
+	"net/url"
+	"strings"
+	"time"
+
+	commonutils "github.com/platform9/vjailbreak/pkg/common/utils"
+	"github.com/platform9/vjailbreak/v2v-helper/pkg/k8sutils"
+	"github.com/vmware/govmomi/cli/esx"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/session"
+	"github.com/vmware/govmomi/session/cache"
+	"github.com/vmware/govmomi/session/keepalive"
+	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/types"
+)
+
+const vCenterKeepaliveInterval = 10 * time.Minute
+
+//go:generate mockgen -source=../vcenter/vcenterops.go -destination=../vcenter/vcenterops_mock.go -package=vcenter
+
+type VCenterOperations interface {
+	getDatacenters(ctx context.Context) ([]*object.Datacenter, error)
+	GetVMByName(ctx context.Context, name string) (*object.VirtualMachine, error)
+	RunCommandOnEsxi(ctx context.Context, host object.HostSystem, command []string) ([]esx.Values, error)
+	GetDataStores(ctx context.Context, dataCenter *object.Datacenter, datastore string) (*object.Datastore, error)
+	EnsureSessionActive(ctx context.Context) error
+}
+
+type VCenterClient struct {
+	VCClient            *vim25.Client
+	VCFinder            *find.Finder
+	VCPropertyCollector *property.Collector
+	Session             *cache.Session
+}
+
+func validateVCenter(ctx context.Context, username, password, host string, disableSSLVerification bool) (*vim25.Client, *cache.Session, error) {
+
+	u, err := commonutils.NormalizeVCenterURL(host)
+	if err != nil {
+		return nil, nil, err
+	}
+	u.User = url.UserPassword(username, password)
+
+	// Create a session with automatic re-authentication
+	s := &cache.Session{
+		URL:      u,
+		Insecure: disableSSLVerification,
+		Reauth:   true, // Enable automatic re-authentication
+	}
+
+	// Create the client
+	c := new(vim25.Client)
+	// Exponential retry logic
+	client, err := k8sutils.GetInclusterClient()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get in-cluster client: %v", err)
+	}
+	migrationSettings, err := k8sutils.GetVjailbreakSettings(ctx, client)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get vjailbreak settings: %v", err)
+	}
+	maxRetries := migrationSettings.VCenterLoginRetryLimit
+	baseDelay := 500 * time.Millisecond // Initial delay
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err = s.Login(ctx, c, nil)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to login: %v", err)
+		}
+		if attempt < maxRetries {
+			delayNum := math.Pow(2, float64(attempt)) * 500
+			baseDelay = time.Duration(delayNum) * time.Millisecond
+			time.Sleep(baseDelay * time.Duration(1<<uint(attempt-1))) // Exponential backoff
+		}
+	}
+
+	var reloginAndWrap func() error
+	reloginAndWrap = func() error {
+		// Use Background so the keepalive's relogin survives cancellation of the
+		// original setup context.
+		if err := s.Login(context.Background(), c, nil); err != nil {
+			return fmt.Errorf("vcenter keepalive relogin failed: %v", err)
+		}
+		c.RoundTripper = keepalive.NewHandlerSOAP(c.RoundTripper, vCenterKeepaliveInterval, reloginAndWrap)
+		return nil
+	}
+	c.RoundTripper = keepalive.NewHandlerSOAP(c.RoundTripper, vCenterKeepaliveInterval, reloginAndWrap)
+
+	// Return both the client and the session for persistent re-authentication
+	return c, s, nil
+}
+
+func VCenterClientBuilder(ctx context.Context, username, password, host string, disableSSLVerification bool) (*VCenterClient, error) {
+	client, session, err := validateVCenter(ctx, username, password, host, disableSSLVerification)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate vCenter connection: %v", err)
+	}
+	finder := find.NewFinder(client, false)
+	pc := property.DefaultCollector(client)
+	return &VCenterClient{VCClient: client, VCFinder: finder, VCPropertyCollector: pc, Session: session}, nil
+}
+
+func (vcclient *VCenterClient) EnsureSessionActive(ctx context.Context) error {
+	sm := session.NewManager(vcclient.VCClient)
+	active, err := sm.SessionIsActive(ctx)
+	if err == nil && active {
+		return nil
+	}
+	if vcclient.Session == nil {
+		return fmt.Errorf("vcenter session check failed and no cached session available: %v", err)
+	}
+	if loginErr := vcclient.Session.Login(ctx, vcclient.VCClient, nil); loginErr != nil {
+		return fmt.Errorf("vcenter session refresh failed: check err=%v, login err=%v", err, loginErr)
+	}
+	return nil
+}
+
+func GetThumbprint(host string) (string, error) {
+	// Get the thumbprint of the vCenter server
+	host = strings.TrimRight(host, "/")
+
+	// Establish a TLS connection to the server
+	conn, err := tls.Dial("tcp", host+":443", &tls.Config{
+		InsecureSkipVerify: true, // Skip verification
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to vCenter: %v", err)
+	}
+	defer conn.Close()
+
+	// Get the server's certificates
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		return "", fmt.Errorf("no certificates found")
+	}
+
+	// Compute the SHA-1 thumbprint of the first certificate
+	cert := certs[0]
+	thumbprint := ""
+
+	for idx, thumbyte := range sha1.Sum(cert.Raw) {
+		thumbprint += hex.EncodeToString([]byte{thumbyte})
+		if idx < len(sha1.Sum(cert.Raw))-1 {
+			thumbprint += ":"
+		}
+	}
+
+	// Return the thumbprint as a hexadecimal string
+	return thumbprint, nil
+}
+
+// IsTransientVCenterError returns true for errors that may resolve after refreshing
+// the vCenter session — covers auth expiry, HTTP timeouts, and dropped connections.
+func IsTransientVCenterError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "NotAuthenticated") ||
+		strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "no such host")
+}
+
+// Get all datacenters with retry and explicit authentication
+func (vcclient *VCenterClient) getDatacenters(ctx context.Context) ([]*object.Datacenter, error) {
+	// Create a new finder with the current client each time to ensure we're using the most up-to-date client
+	vcclient.VCFinder = find.NewFinder(vcclient.VCClient, false)
+
+	// Try to get datacenters
+	datacenters, err := vcclient.VCFinder.DatacenterList(ctx, "*")
+	if err != nil {
+		// Retry on auth expiry and transient network/timeout errors
+		if IsTransientVCenterError(err) && vcclient.Session != nil {
+			// Explicitly force re-login
+			login := vcclient.Session.Login
+			if err := login(ctx, vcclient.VCClient, nil); err != nil {
+				return nil, fmt.Errorf("failed to re-login during datacenter refresh: %v", err)
+			}
+
+			// Create a new finder with the refreshed client
+			vcclient.VCFinder = find.NewFinder(vcclient.VCClient, false)
+
+			// Try again
+			datacenters, err = vcclient.VCFinder.DatacenterList(ctx, "*")
+			if err != nil {
+				return nil, fmt.Errorf("failed to get datacenters after re-login: %v", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to get datacenters: %v", err)
+		}
+	}
+
+	return datacenters, nil
+}
+
+// get VM by name
+func (vcclient *VCenterClient) GetVMByName(ctx context.Context, name string) (*object.VirtualMachine, error) {
+	vm, _, err := vcclient.GetVMWithDatacenter(ctx, name)
+	return vm, err
+}
+
+// GetVMByMOID returns a VM object using its vCenter Managed Object ID (e.g. "vm-31090")
+func (vcclient *VCenterClient) GetVMByMOID(moid string) *object.VirtualMachine {
+	ref := types.ManagedObjectReference{
+		Type:  "VirtualMachine",
+		Value: moid,
+	}
+	return object.NewVirtualMachine(vcclient.VCClient, ref)
+}
+
+// GetVMWithDatacenter finds a VM by name and returns both the VM and its parent datacenter.
+func (vcclient *VCenterClient) GetVMWithDatacenter(ctx context.Context, name string) (*object.VirtualMachine, *object.Datacenter, error) {
+	datacenters, err := vcclient.getDatacenters(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get datacenters: %v", err)
+	}
+	for _, datacenter := range datacenters {
+		vcclient.VCFinder.SetDatacenter(datacenter)
+		vm, err := vcclient.VCFinder.VirtualMachine(ctx, name)
+		if err == nil {
+			return vm, datacenter, nil
+		}
+		// Only continue to the next datacenter for genuine "not found" results.
+		// Surface real errors (timeouts, network failures) immediately.
+		if !strings.Contains(strings.ToLower(err.Error()), "not found") {
+			return nil, nil, fmt.Errorf("failed to search for VM '%s': %v", name, err)
+		}
+	}
+	return nil, nil, fmt.Errorf("VM not found")
+}
+
+// RenameVM renames a VM using its vCenter Managed Object ID
+func (vcclient *VCenterClient) RenameVM(ctx context.Context, moid, newVMName string) error {
+	vm := vcclient.GetVMByMOID(moid)
+	spec := types.VirtualMachineConfigSpec{Name: newVMName}
+	task, err := vm.Reconfigure(ctx, spec)
+	if err != nil {
+		return fmt.Errorf("failed to reconfigure VM (moid=%s) with new name '%s': %v", moid, newVMName, err)
+	}
+	return task.Wait(ctx)
+}
+
+// getOrCreateVMFolder finds a folder by name under the VM folder hierarchy,
+// creating it if it does not exist.
+func (vcclient *VCenterClient) getOrCreateVMFolder(ctx context.Context, datacenterName, folderName string) (*object.Folder, error) {
+	var dc *object.Datacenter
+	if datacenterName != "" {
+		foundDC, err := vcclient.VCFinder.Datacenter(ctx, datacenterName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find datacenter '%s': %v", datacenterName, err)
+		}
+		dc = foundDC
+		vcclient.VCFinder.SetDatacenter(dc)
+	}
+
+	folderRef, err := vcclient.VCFinder.Folder(ctx, folderName)
+	if err == nil {
+		return folderRef, nil
+	}
+
+	if dc == nil {
+		datacenters, dcErr := vcclient.getDatacenters(ctx)
+		if dcErr != nil || len(datacenters) == 0 {
+			return nil, fmt.Errorf("folder '%s' not found and no datacenter available to create it: %v", folderName, dcErr)
+		}
+		dc = datacenters[0]
+	}
+
+	dcFolders, err := dc.Folders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get datacenter VM folder to create '%s': %v", folderName, err)
+	}
+
+	newFolder, err := dcFolders.VmFolder.CreateFolder(ctx, folderName)
+	if err != nil {
+		if folderRef2, findErr := vcclient.VCFinder.Folder(ctx, folderName); findErr == nil {
+			return folderRef2, nil
+		}
+		return nil, fmt.Errorf("failed to create folder '%s': %v", folderName, err)
+	}
+	return newFolder, nil
+}
+
+// MovetoFolder moves a VM (identified by MOID) to a folder, creating the folder if it does not exist.
+func (vcclient *VCenterClient) MovetoFolder(ctx context.Context, moid, datacenterName, folderName string) error {
+	vm := vcclient.GetVMByMOID(moid)
+
+	folderRef, err := vcclient.getOrCreateVMFolder(ctx, datacenterName, folderName)
+	if err != nil {
+		return err
+	}
+
+	task, err := folderRef.MoveInto(ctx, []types.ManagedObjectReference{vm.Reference()})
+	if err != nil {
+		return fmt.Errorf("failed to initiate move of VM (moid=%s) to folder '%s': %v", moid, folderName, err)
+	}
+	return task.Wait(ctx)
+}
+
+// RunCommandOnEsxi runs a command on an ESXi host
+func (vcclient *VCenterClient) RunCommandOnEsxi(ctx context.Context, host object.HostSystem, command []string) ([]esx.Values, error) {
+	esxCliExec, err := esx.NewExecutor(ctx, vcclient.VCClient, host.Reference())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create esxcli executor: %v", err)
+	}
+
+	response, err := esxCliExec.Run(ctx, command)
+	if err != nil {
+		fmt.Println("Failed to run command on ESXi host: ", err)
+		if fault, ok := err.(*esx.Fault); ok {
+			fmt.Println("ESXi CLI Fault: ", fault)
+		}
+		return nil, fmt.Errorf("failed to run command on ESXi host: %v", err)
+
+	}
+
+	for _, value := range response.Values {
+		message, ok := value["message"]
+		if ok {
+			fmt.Println("ESXi CLI Message: ", message)
+		}
+		status, ok := value["status"]
+		if ok && strings.Join(status, "") != "0" {
+			fmt.Println("ESXi CLI Status: ", status)
+			return nil, fmt.Errorf("failed to run command on ESXi host: %v", err)
+		}
+	}
+
+	return response.Values, nil
+
+}
+
+// GetDataStore gives the datastore object for the name
+func (vcclient *VCenterClient) GetDataStores(ctx context.Context, dataCenter *object.Datacenter, datastore string) (*object.Datastore, error) {
+	datastoreRef, err := vcclient.VCFinder.Datastore(ctx, datastore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find datastore '%s': %v", datastore, err)
+	}
+	return datastoreRef, nil
+}

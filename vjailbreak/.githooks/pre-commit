@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+cd "${REPO_ROOT}"
+
+
+echo "[pre-commit] running golangci-lint (k8s/migration)"
+make -C k8s/migration lint
+
+echo "[pre-commit] running make build-installer"
+_before_installer="$(git status --porcelain)"
+TAG=main make build-installer
+_after_installer="$(git status --porcelain)"
+if [[ "${_before_installer}" != "${_after_installer}" ]]; then
+  comm -13 <(echo "${_before_installer}" | awk '{print $2}' | sort) \
+           <(echo "${_after_installer}"  | awk '{print $2}' | sort) \
+    | xargs -r git add
+fi
