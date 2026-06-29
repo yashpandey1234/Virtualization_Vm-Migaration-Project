@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MigrateAI — ESXi → OpenStack Architecture</title>
+<style>
+  :root {
+    --bg:        #0a0d14;
+    --surface:   #111520;
+    --surface2:  #1a1f30;
+    --border:    #252c42;
+    --text:      #e2e8f0;
+    --text-sub:  #7a85a0;
+    --accent:    #5b8dee;
+    --orange:    #f97316;
+    --success:   #22d3a0;
+    --warning:   #f59e0b;
+    --danger:    #f87171;
+    --purple:    #a78bfa;
+    --pill-bg:   #1a1f30;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 40px 24px;
+  }
+  .page { max-width: 1140px; margin: 0 auto; }
+
+  h1 { font-size: 30px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  h2 { font-size: 19px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  h3 { font-size: 13px; font-weight: 600; color: var(--text-sub); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 8px; }
+  p, .sub { font-size: 14px; color: var(--text-sub); margin-bottom: 0; }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 13px 14px; }
+  .stat-val { font-size: 15px; font-weight: 700; color: var(--accent); }
+  .stat-val.orange { color: var(--orange); }
+  .stat-val.green { color: var(--success); }
+  .stat-val.purple { color: var(--purple); }
+  .stat-label { font-size: 11px; color: var(--text-sub); margin-top: 2px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; background: var(--surface2); color: var(--text-sub); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+  code { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; background: var(--surface2); padding: 2px 6px; border-radius: 3px; color: var(--accent); }
+
+  .callout { background: var(--surface); border-left: 3px solid var(--accent); border-radius: 6px; padding: 12px 16px; font-size: 13px; color: var(--text-sub); }
+  .callout.orange { border-left-color: var(--orange); }
+  .callout.green  { border-left-color: var(--success); }
+  .callout.purple { border-left-color: var(--purple); }
+
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { background: var(--pill-bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px 11px; font-size: 12px; color: var(--text-sub); }
+  .pill.blue { border-color: var(--accent); color: var(--accent); }
+  .pill.orange { border-color: var(--orange); color: var(--orange); }
+  .pill.green { border-color: var(--success); color: var(--success); }
+  .pill.purple { border-color: var(--purple); color: var(--purple); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
+
+  .section { margin-bottom: 0; }
+
+  .legend { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-sub); }
+  .leg-line { width: 28px; height: 2px; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .card-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  .card-sub { font-size: 12px; color: var(--text-sub); }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-blue { background: #5b8dee22; color: var(--accent); border: 1px solid #5b8dee44; }
+  .badge-orange { background: #f9731622; color: var(--orange); border: 1px solid #f9731644; }
+  .badge-green { background: #22d3a022; color: var(--success); border: 1px solid #22d3a044; }
+  .badge-red { background: #f8717122; color: var(--danger); border: 1px solid #f8717144; }
+  .badge-purple { background: #a78bfa22; color: var(--purple); border: 1px solid #a78bfa44; }
+
+  svg text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+  .header-tag { display: inline-block; background: #5b8dee18; border: 1px solid #5b8dee44; color: var(--accent); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 4px; margin-bottom: 10px; letter-spacing: .05em; text-transform: uppercase; }
+
+  @media (max-width: 768px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div style="margin-bottom:28px;">
+    <div class="header-tag">Agentic Migration Platform</div>
+    <h1>MigrateAI &mdash; ESXi → OpenStack Architecture</h1>
+    <p style="margin-top:8px; font-size:15px;">AI-powered VM migration platform — VMware ESXi / vCenter → OpenStack — using LangGraph multi-agent workflow, LLM-based dependency analysis &amp; risk scoring, and human-in-the-loop approval gate.</p>
+    <div style="margin-top:10px; font-size:13px; color: var(--text-sub);">
+      <strong style="color:var(--orange);">vJailbreak vs MigrateAI:</strong> vJailbreak = hardcoded automation (Go + Kubernetes CRDs + virt-v2v). MigrateAI = AI-driven agentic platform (Python + LangGraph + LLM reasoning + human approval) — same migration engine, fundamentally smarter orchestration.
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats" style="margin-bottom:32px;">
+    <div class="stat"><div class="stat-val">FastAPI</div><div class="stat-label">Backend framework</div></div>
+    <div class="stat"><div class="stat-val">React 18</div><div class="stat-label">Frontend (Vite + Tailwind)</div></div>
+    <div class="stat"><div class="stat-val orange">LangGraph</div><div class="stat-label">7-agent workflow</div></div>
+    <div class="stat"><div class="stat-val green">virt-v2v</div><div class="stat-label">VMDK → QCOW2</div></div>
+    <div class="stat"><div class="stat-val purple">OpenStack SDK</div><div class="stat-label">Nova · Glance · Neutron · Cinder</div></div>
+    <div class="stat"><div class="stat-val">5 LLMs</div><div class="stat-label">GPT-4o · Claude · Gemini · DeepSeek · Ollama</div></div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══ SECTION 1 — SYSTEM ARCHITECTURE ═══ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>System Architecture — 5 Layers</h2>
+    <p class="sub" style="margin-bottom:16px;">Full stack from React browser to OpenStack target. Dashed arrows = external LLM API calls. Orange = critical migration path. Blue = agent orchestration path.</p>
+
+    <svg viewBox="0 0 1100 590" width="100%" style="display:block;border:1px solid #252c42;border-radius:10px;background:#0a0d14;">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#252c42"/>
+        </marker>
+        <marker id="arr-o" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#f97316"/>
+        </marker>
+        <marker id="arr-b" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#5b8dee"/>
+        </marker>
+        <marker id="arr-g" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#22d3a0"/>
+        </marker>
+        <marker id="arr-w" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#f59e0b"/>
+        </marker>
+      </defs>
+
+      <!-- Layer bands -->
+      <rect x="8" y="10" width="1084" height="98" rx="8" fill="#5b8dee0f" stroke="none"/>
+      <rect x="8" y="120" width="1084" height="98" rx="8" fill="#22d3a00a" stroke="none"/>
+      <rect x="8" y="230" width="1084" height="98" rx="8" fill="#f973160a" stroke="none"/>
+      <rect x="8" y="340" width="1084" height="98" rx="8" fill="#a78bfa0a" stroke="none"/>
+      <rect x="8" y="450" width="1084" height="98" rx="8" fill="#111520" stroke="none"/>
+
+      <!-- Layer labels -->
+      <text x="1088" y="64"  text-anchor="end" font-size="11" fill="#5b8dee" opacity=".8">Browser / React</text>
+      <text x="1088" y="174" text-anchor="end" font-size="11" fill="#22d3a0" opacity=".8">FastAPI Backend</text>
+      <text x="1088" y="284" text-anchor="end" font-size="11" fill="#f97316" opacity=".8">LangGraph Agents</text>
+      <text x="1088" y="394" text-anchor="end" font-size="11" fill="#a78bfa" opacity=".8">VMware / OpenStack Connectors</text>
+      <text x="1088" y="504" text-anchor="end" font-size="11" fill="#7a85a0" opacity=".8">Persistence &amp; Queues</text>
+
+      <!-- ── LAYER 0 — React ── -->
+      <rect x="20"  y="24" width="155" height="58" rx="7" fill="#5b8dee33" stroke="#5b8dee" stroke-width="1.5"/>
+      <text x="97"  y="49" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">React SPA</text>
+      <text x="97"  y="66" text-anchor="middle" font-size="10" fill="#7a85a0">Vite · Tailwind · Dashboard</text>
+
+      <rect x="190" y="24" width="145" height="58" rx="7" fill="#5b8dee1a" stroke="#252c42" stroke-width="1"/>
+      <text x="262" y="49" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Auth Context</text>
+      <text x="262" y="66" text-anchor="middle" font-size="10" fill="#7a85a0">JWT / Bearer token</text>
+
+      <rect x="350" y="24" width="155" height="58" rx="7" fill="#5b8dee1a" stroke="#252c42" stroke-width="1"/>
+      <text x="427" y="49" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Migration Wizard</text>
+      <text x="427" y="66" text-anchor="middle" font-size="10" fill="#7a85a0">VM select · config · schedule</text>
+
+      <rect x="520" y="24" width="165" height="58" rx="7" fill="#5b8dee33" stroke="#5b8dee" stroke-width="1.5"/>
+      <text x="602" y="49" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">AgentWorkflow UI</text>
+      <text x="602" y="66" text-anchor="middle" font-size="10" fill="#7a85a0">SSE stream · approval gate</text>
+
+      <rect x="700" y="24" width="160" height="58" rx="7" fill="#5b8dee33" stroke="#5b8dee" stroke-width="1.5"/>
+      <text x="780" y="49" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">api.js (Axios)</text>
+      <text x="780" y="66" text-anchor="middle" font-size="10" fill="#7a85a0">interceptor · polling</text>
+
+      <!-- ── LAYER 1 — FastAPI ── -->
+      <rect x="20"  y="134" width="145" height="58" rx="7" fill="#22d3a033" stroke="#22d3a0" stroke-width="1"/>
+      <text x="92"  y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">auth_routes</text>
+      <text x="92"  y="175" text-anchor="middle" font-size="10" fill="#7a85a0">POST /auth/login → JWT</text>
+
+      <rect x="180" y="134" width="155" height="58" rx="7" fill="#22d3a022" stroke="#252c42" stroke-width="1"/>
+      <text x="257" y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">vcenter_routes</text>
+      <text x="257" y="175" text-anchor="middle" font-size="10" fill="#7a85a0">connect · inventory · VMs</text>
+
+      <rect x="350" y="134" width="160" height="58" rx="7" fill="#22d3a044" stroke="#22d3a0" stroke-width="1.5"/>
+      <text x="430" y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">workflow_routes</text>
+      <text x="430" y="175" text-anchor="middle" font-size="10" fill="#7a85a0">LangGraph SSE stream</text>
+
+      <rect x="525" y="134" width="145" height="58" rx="7" fill="#22d3a022" stroke="#252c42" stroke-width="1"/>
+      <text x="597" y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">task_routes</text>
+      <text x="597" y="175" text-anchor="middle" font-size="10" fill="#7a85a0">/tasks/:id status</text>
+
+      <rect x="685" y="134" width="160" height="58" rx="7" fill="#22d3a022" stroke="#252c42" stroke-width="1"/>
+      <text x="765" y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">APScheduler</text>
+      <text x="765" y="175" text-anchor="middle" font-size="10" fill="#7a85a0">ESXi ping · CBT sync</text>
+
+      <!-- ── LAYER 2 — LangGraph Agents ── -->
+      <rect x="20"  y="244" width="130" height="60" rx="7" fill="#f9731622" stroke="#f97316" stroke-width="1"/>
+      <text x="85"  y="268" text-anchor="middle" font-size="11" font-weight="700" fill="#f97316">Discovery</text>
+      <text x="85"  y="283" text-anchor="middle" font-size="9" fill="#7a85a0">pyVmomi · ESXi API</text>
+      <text x="85"  y="296" text-anchor="middle" font-size="9" fill="#4a5568">inventory.json</text>
+
+      <rect x="165" y="244" width="130" height="60" rx="7" fill="#f9731622" stroke="#f97316" stroke-width="1"/>
+      <text x="230" y="268" text-anchor="middle" font-size="11" font-weight="700" fill="#f97316">Dependency</text>
+      <text x="230" y="283" text-anchor="middle" font-size="9" fill="#7a85a0">LLM network analysis</text>
+      <text x="230" y="296" text-anchor="middle" font-size="9" fill="#4a5568">DB→APP→WEB graph</text>
+
+      <rect x="310" y="244" width="130" height="60" rx="7" fill="#f9731633" stroke="#f97316" stroke-width="1.5"/>
+      <text x="375" y="268" text-anchor="middle" font-size="11" font-weight="700" fill="#f97316">Risk Agent</text>
+      <text x="375" y="283" text-anchor="middle" font-size="9" fill="#7a85a0">criticality · CPU · tags</text>
+      <text x="375" y="296" text-anchor="middle" font-size="9" fill="#4a5568">risk_score JSON</text>
+
+      <rect x="455" y="244" width="135" height="60" rx="7" fill="#f9731633" stroke="#f97316" stroke-width="1.5"/>
+      <text x="522" y="268" text-anchor="middle" font-size="11" font-weight="700" fill="#f97316">Planning Agent</text>
+      <text x="522" y="283" text-anchor="middle" font-size="9" fill="#7a85a0">LLM batch ordering</text>
+      <text x="522" y="296" text-anchor="middle" font-size="9" fill="#4a5568">migration_plan.json</text>
+
+      <rect x="605" y="244" width="130" height="60" rx="7" fill="#f8717133" stroke="#f87171" stroke-width="1.5"/>
+      <text x="670" y="265" text-anchor="middle" font-size="11" font-weight="700" fill="#f87171">Human Gate</text>
+      <text x="670" y="280" text-anchor="middle" font-size="9" fill="#7a85a0">⏸ interrupt · approve</text>
+      <text x="670" y="293" text-anchor="middle" font-size="9" fill="#4a5568">resume / cancel</text>
+
+      <rect x="750" y="244" width="130" height="60" rx="7" fill="#22d3a022" stroke="#22d3a0" stroke-width="1.5"/>
+      <text x="815" y="268" text-anchor="middle" font-size="11" font-weight="700" fill="#22d3a0">Migration</text>
+      <text x="815" y="283" text-anchor="middle" font-size="9" fill="#7a85a0">virt-v2v · CBT</text>
+      <text x="815" y="296" text-anchor="middle" font-size="9" fill="#4a5568">VMDK→QCOW2</text>
+
+      <rect x="895" y="244" width="130" height="60" rx="7" fill="#5b8dee22" stroke="#5b8dee" stroke-width="1.5"/>
+      <text x="960" y="268" text-anchor="middle" font-size="11" font-weight="700" fill="#5b8dee">Validation</text>
+      <text x="960" y="283" text-anchor="middle" font-size="9" fill="#7a85a0">ping · SSH · services</text>
+      <text x="960" y="296" text-anchor="middle" font-size="9" fill="#4a5568">health_report.json</text>
+
+      <!-- ── LAYER 3 — Connectors ── -->
+      <rect x="20"  y="354" width="185" height="60" rx="7" fill="#a78bfa22" stroke="#252c42" stroke-width="1"/>
+      <text x="112" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">VMwareConnector</text>
+      <text x="112" y="394" text-anchor="middle" font-size="10" fill="#7a85a0">pyVmomi · vSphere · VDDK</text>
+
+      <rect x="220" y="354" width="185" height="60" rx="7" fill="#a78bfa33" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="312" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">OpenStackConnector</text>
+      <text x="312" y="394" text-anchor="middle" font-size="10" fill="#7a85a0">keystoneauth · Nova · Glance · Neutron</text>
+
+      <rect x="420" y="354" width="165" height="60" rx="7" fill="#a78bfa22" stroke="#252c42" stroke-width="1"/>
+      <text x="502" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">DiskConverter</text>
+      <text x="502" y="394" text-anchor="middle" font-size="10" fill="#7a85a0">virt-v2v · qemu-img · VDDK</text>
+
+      <rect x="600" y="354" width="155" height="60" rx="7" fill="#a78bfa22" stroke="#252c42" stroke-width="1"/>
+      <text x="677" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">LLM Clients</text>
+      <text x="677" y="394" text-anchor="middle" font-size="10" fill="#7a85a0">GPT-4o · Claude · Gemini</text>
+
+      <rect x="770" y="354" width="160" height="60" rx="7" fill="#a78bfa22" stroke="#252c42" stroke-width="1"/>
+      <text x="850" y="378" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">TaskController</text>
+      <text x="850" y="394" text-anchor="middle" font-size="10" fill="#7a85a0">Celery · Redis queue</text>
+
+      <!-- ── LAYER 4 — Persistence ── -->
+      <rect x="20"  y="464" width="185" height="58" rx="7" fill="#1a1f30" stroke="#252c42" stroke-width="1"/>
+      <text x="112" y="488" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">PostgreSQL</text>
+      <text x="112" y="505" text-anchor="middle" font-size="10" fill="#7a85a0">VMs · Tasks · Credentials</text>
+
+      <rect x="220" y="464" width="185" height="58" rx="7" fill="#1a1f30" stroke="#252c42" stroke-width="1"/>
+      <text x="312" y="488" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">LangGraph SQLite</text>
+      <text x="312" y="505" text-anchor="middle" font-size="10" fill="#7a85a0">workflow checkpoints</text>
+
+      <rect x="420" y="464" width="165" height="58" rx="7" fill="#1a1f30" stroke="#252c42" stroke-width="1"/>
+      <text x="502" y="488" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Redis</text>
+      <text x="502" y="505" text-anchor="middle" font-size="10" fill="#7a85a0">task queue · Celery broker</text>
+
+      <rect x="600" y="464" width="155" height="58" rx="7" fill="#1a1f30" stroke="#252c42" stroke-width="1"/>
+      <text x="677" y="488" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">JSON Artifacts</text>
+      <text x="677" y="505" text-anchor="middle" font-size="10" fill="#7a85a0">inventory · plan · health</text>
+
+      <rect x="770" y="464" width="160" height="58" rx="7" fill="#1a1f30" stroke="#252c42" stroke-width="1"/>
+      <text x="850" y="488" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Rotating Logs</text>
+      <text x="850" y="505" text-anchor="middle" font-size="10" fill="#7a85a0">migrateai.log · audit trail</text>
+
+      <!-- ── EDGES ── -->
+      <!-- React → FastAPI -->
+      <path d="M780,82 C780,107 92,107 92,134" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#arr)"/>
+      <path d="M780,82 C780,107 257,107 257,134" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#arr)"/>
+      <path d="M780,82 C780,107 430,107 430,134" fill="none" stroke="#22d3a0" stroke-width="1.5" marker-end="url(#arr-g)"/>
+      <path d="M780,82 C780,107 597,107 597,134" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#arr)"/>
+
+      <!-- FastAPI → Agents -->
+      <path d="M430,192 C430,218 85,218 85,244" fill="none" stroke="#f97316" stroke-width="1.5" marker-end="url(#arr-o)"/>
+      <path d="M257,192 C257,218 112,218 112,354" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#arr)"/>
+
+      <!-- Agent chain arrows -->
+      <line x1="150" y1="274" x2="165" y2="274" stroke="#f97316" stroke-width="1.5" marker-end="url(#arr-o)"/>
+      <line x1="295" y1="274" x2="310" y2="274" stroke="#f97316" stroke-width="1.5" marker-end="url(#arr-o)"/>
+      <line x1="440" y1="274" x2="455" y2="274" stroke="#f97316" stroke-width="1.5" marker-end="url(#arr-o)"/>
+      <line x1="590" y1="274" x2="605" y2="274" stroke="#f97316" stroke-width="1.5" marker-end="url(#arr-o)"/>
+      <line x1="735" y1="274" x2="750" y2="274" stroke="#22d3a0" stroke-width="1.5" marker-end="url(#arr-g)"/>
+      <line x1="880" y1="274" x2="895" y2="274" stroke="#5b8dee" stroke-width="1.5" marker-end="url(#arr-b)"/>
+
+      <!-- Cancel path -->
+      <path d="M670,244 Q670,220 600,215 Q520,210 522,244" fill="none" stroke="#f87171" stroke-width="1" stroke-dasharray="4 3"/>
+      <text x="590" y="210" font-size="9" fill="#f87171" text-anchor="middle">cancel → END</text>
+
+      <!-- Agents → Connectors -->
+      <path d="M85,304 C85,328 112,328 112,354" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#arr)"/>
+      <path d="M522,304 C522,328 502,328 502,354" fill="none" stroke="#f97316" stroke-width="1.2" marker-end="url(#arr-o)"/>
+      <path d="M815,304 C815,328 312,328 312,354" fill="none" stroke="#22d3a0" stroke-width="1.2" marker-end="url(#arr-g)"/>
+
+      <!-- LLM dashed (external) -->
+      <path d="M230,304 C230,330 677,330 677,354" fill="none" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="5 3" marker-end="url(#arr-w)"/>
+      <path d="M375,304 C375,332 677,332 677,354" fill="none" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="5 3" marker-end="url(#arr-w)"/>
+
+      <!-- TaskController -->
+      <path d="M960,304 C960,328 850,328 850,354" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#arr)"/>
+
+      <!-- Connectors → Persistence -->
+      <path d="M112,414 C112,438 112,438 112,464" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#arr)"/>
+      <path d="M312,414 C312,438 312,438 312,464" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#arr)"/>
+      <path d="M850,414 C850,438 502,438 502,464" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#arr)"/>
+      <path d="M502,414 C502,438 677,438 677,464" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#arr)"/>
+    </svg>
+
+    <div class="legend">
+      <div class="legend-item"><div class="leg-line" style="background:#f97316;height:2px;"></div> Agent chain</div>
+      <div class="legend-item"><div class="leg-line" style="background:#22d3a0;height:2px;"></div> Migration path</div>
+      <div class="legend-item"><div class="leg-line" style="background:#5b8dee;height:2px;"></div> Validation path</div>
+      <div class="legend-item"><div class="leg-line" style="background:#f59e0b;height:1px;border-top:2px dashed #f59e0b;"></div> External LLM API</div>
+      <div class="legend-item"><div class="leg-line" style="background:#252c42;height:2px;"></div> Internal call</div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══ SECTION 2 — VJAILBREAK ANALYSIS ═══ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>vJailbreak Deep Analysis — Kya Karta Hai &amp; Kaise</h2>
+    <p class="sub" style="margin-bottom:16px;">Platform9 ka open-source tool. Hardcoded automation — AI nahi, lekin migration engine best-in-class hai. Hum iska migration core reuse karte hain aur upar AI layer add karte hain.</p>
+
+    <div class="grid-2" style="margin-bottom:20px;">
+      <div>
+        <h3>vJailbreak Tech Stack</h3>
+        <table>
+          <tr><th>Component</th><th>Technology</th><th>Kya Karta Hai</th></tr>
+          <tr><td><strong>Controller</strong></td><td><code>Go (Golang)</code></td><td>Kubernetes operator — migration CRDs ko watch karta hai</td></tr>
+          <tr><td><strong>Orchestration</strong></td><td><code>K3s / Kubernetes</code></td><td>Migration pods schedule karta hai ESXi per VM ke liye</td></tr>
+          <tr><td><strong>VMware Access</strong></td><td><code>govmomi</code></td><td>Go library for vCenter/ESXi API — inventory pull, snapshot</td></tr>
+          <tr><td><strong>Disk Conversion</strong></td><td><code>virt-v2v</code></td><td>VMDK → QCOW2 conversion — core migration engine</td></tr>
+          <tr><td><strong>Network Copy</strong></td><td><code>nbdkit + VDDK</code></td><td>VMware disk dev kit — CBT se only changed blocks copy</td></tr>
+          <tr><td><strong>OpenStack Deploy</strong></td><td><code>openstack-go-sdk</code></td><td>Glance image upload, Nova VM create, Neutron port attach</td></tr>
+          <tr><td><strong>UI</strong></td><td><code>React + TypeScript</code></td><td>Migration form, progress view, agent scaling</td></tr>
+          <tr><td><strong>Windows Drivers</strong></td><td><code>virtio-win</code></td><td>KVM virtio drivers Windows VMs ke liye inject karta hai</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>vJailbreak Migration Flow (Hardcoded)</h3>
+        <table>
+          <tr><th>Step</th><th>Action</th><th>Tool Used</th></tr>
+          <tr><td>1. Connect</td><td>vCenter credentials se connect, VM list fetch</td><td>govmomi</td></tr>
+          <tr><td>2. Snapshot</td><td>Source VM ka snapshot create (cold/hot option)</td><td>govmomi</td></tr>
+          <tr><td>3. Copy Disk</td><td>VMDK ko nbdkit+VDDK se stream karo (CBT enabled)</td><td>nbdkit · VDDK</td></tr>
+          <tr><td>4. Convert</td><td>VMDK → QCOW2 format conversion + driver inject</td><td>virt-v2v</td></tr>
+          <tr><td>5. Upload</td><td>QCOW2 image Glance me upload karo</td><td>OpenStack SDK</td></tr>
+          <tr><td>6. Create VM</td><td>Nova me VM create karo with flavor + network map</td><td>Nova API</td></tr>
+          <tr><td>7. Verify</td><td>Ping check, basic health verification</td><td>ICMP</td></tr>
+        </table>
+        <div class="callout orange" style="margin-top:12px;">
+          <strong>vJailbreak ka limitation:</strong> Koi AI reasoning nahi. Agar 100 VMs hain — sab ek saath migrate karne ki koshish karta hai. Dependency order, risk scoring, production tagging — sab manually karna padta hai. <strong>MigrateAI yahi sab AI se karta hai.</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══ SECTION 3 — LANGGRAPH WORKFLOW DAG ═══ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>LangGraph 7-Agent Workflow DAG</h2>
+    <p class="sub" style="margin-bottom:16px;">Durable, resumable graph — SQLite checkpoints pe. SSE events stream karta hai per node. Human Gate pe pause hota hai jab tak admin approve ya cancel kare.</p>
+
+    <svg viewBox="0 0 1100 160" width="100%" style="display:block;border:1px solid #252c42;border-radius:10px;background:#0a0d14;">
+      <defs>
+        <marker id="a2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#f97316"/>
+        </marker>
+        <marker id="a3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#22d3a0"/>
+        </marker>
+        <marker id="a4" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#5b8dee"/>
+        </marker>
+      </defs>
+
+      <!-- Lines between nodes -->
+      <line x1="72"  y1="80" x2="108" y2="80" stroke="#252c42" stroke-width="1.5"/>
+      <line x1="248" y1="80" x2="284" y2="80" stroke="#f97316" stroke-width="1.5" marker-end="url(#a2)"/>
+      <line x1="424" y1="80" x2="460" y2="80" stroke="#f97316" stroke-width="1.5" marker-end="url(#a2)"/>
+      <line x1="600" y1="80" x2="636" y2="80" stroke="#f97316" stroke-width="1.5" marker-end="url(#a2)"/>
+      <line x1="776" y1="80" x2="812" y2="80" stroke="#f87171" stroke-width="1.5"/>
+      <line x1="892" y1="80" x2="926" y2="80" stroke="#22d3a0" stroke-width="1.5" marker-end="url(#a3)"/>
+      <line x1="1026" y1="80" x2="1056" y2="80" stroke="#5b8dee" stroke-width="1.5" marker-end="url(#a4)"/>
+
+      <!-- Cancel arc -->
+      <path d="M850 58 Q 850 20 750 20 Q 650 20 650 58" fill="none" stroke="#f87171" stroke-width="1" stroke-dasharray="4 3"/>
+      <text x="750" y="14" font-size="9" fill="#f87171" text-anchor="middle">cancel → END</text>
+
+      <!-- START -->
+      <rect x="12" y="57" width="60" height="46" rx="23" fill="#111520" stroke="#252c42" stroke-width="1"/>
+      <text x="42" y="78" text-anchor="middle" font-size="11" font-weight="600" fill="#7a85a0">START</text>
+      <text x="42" y="94" text-anchor="middle" font-size="9" fill="#4a5568">init</text>
+
+      <!-- 1. Discovery -->
+      <rect x="108" y="48" width="140" height="64" rx="8" fill="#f9731622" stroke="#f97316" stroke-width="1.5"/>
+      <text x="178" y="70" text-anchor="middle" font-size="12" font-weight="700" fill="#f97316">1. Discovery</text>
+      <text x="178" y="85" text-anchor="middle" font-size="9" fill="#7a85a0">pyVmomi → ESXi connect</text>
+      <text x="178" y="98" text-anchor="middle" font-size="9" fill="#7a85a0">VM inventory fetch</text>
+      <text x="178" y="108" text-anchor="middle" font-size="8" fill="#4a5568">saves inventory.json</text>
+
+      <!-- 2. Dependency -->
+      <rect x="284" y="48" width="140" height="64" rx="8" fill="#f9731622" stroke="#f97316" stroke-width="1.5"/>
+      <text x="354" y="70" text-anchor="middle" font-size="12" font-weight="700" fill="#f97316">2. Dependency</text>
+      <text x="354" y="85" text-anchor="middle" font-size="9" fill="#7a85a0">LLM → analyze VMs</text>
+      <text x="354" y="98" text-anchor="middle" font-size="9" fill="#7a85a0">DB→APP→WEB chain</text>
+      <text x="354" y="108" text-anchor="middle" font-size="8" fill="#4a5568">dep_graph.json</text>
+
+      <!-- 3. Risk -->
+      <rect x="460" y="48" width="140" height="64" rx="8" fill="#f9731633" stroke="#f97316" stroke-width="1.5"/>
+      <text x="530" y="70" text-anchor="middle" font-size="12" font-weight="700" fill="#f97316">3. Risk</text>
+      <text x="530" y="85" text-anchor="middle" font-size="9" fill="#7a85a0">production · critical flags</text>
+      <text x="530" y="98" text-anchor="middle" font-size="9" fill="#7a85a0">risk_score per VM</text>
+      <text x="530" y="108" text-anchor="middle" font-size="8" fill="#4a5568">risk_report.json</text>
+
+      <!-- 4. Planning -->
+      <rect x="636" y="48" width="140" height="64" rx="8" fill="#f9731633" stroke="#f97316" stroke-width="1.5"/>
+      <text x="706" y="70" text-anchor="middle" font-size="12" font-weight="700" fill="#f97316">4. Planning</text>
+      <text x="706" y="85" text-anchor="middle" font-size="9" fill="#7a85a0">LLM → batch order</text>
+      <text x="706" y="98" text-anchor="middle" font-size="9" fill="#7a85a0">migration windows</text>
+      <text x="706" y="108" text-anchor="middle" font-size="8" fill="#4a5568">plan.json</text>
+
+      <!-- 5. Human Gate -->
+      <rect x="812" y="48" width="114" height="64" rx="32" fill="#f8717122" stroke="#f87171" stroke-width="1.5"/>
+      <text x="869" y="72" text-anchor="middle" font-size="11" font-weight="700" fill="#f87171">5. Human</text>
+      <text x="869" y="85" text-anchor="middle" font-size="11" font-weight="700" fill="#f87171">Gate ⏸</text>
+      <text x="869" y="102" text-anchor="middle" font-size="9" fill="#7a85a0">approve / cancel</text>
+
+      <!-- 6. Migration -->
+      <rect x="926" y="48" width="130" height="64" rx="8" fill="#22d3a022" stroke="#22d3a0" stroke-width="1.5"/>
+      <text x="991" y="70" text-anchor="middle" font-size="12" font-weight="700" fill="#22d3a0">6. Migration</text>
+      <text x="991" y="85" text-anchor="middle" font-size="9" fill="#7a85a0">virt-v2v execute</text>
+      <text x="991" y="98" text-anchor="middle" font-size="9" fill="#7a85a0">OpenStack deploy</text>
+      <text x="991" y="108" text-anchor="middle" font-size="8" fill="#4a5568">Celery tasks</text>
+
+      <!-- 7. Validation -->
+      <rect x="1056" y="48" width="30" height="64" rx="8" fill="#5b8dee22" stroke="#5b8dee" stroke-width="1.5"/>
+      <text x="1071" y="68" text-anchor="middle" font-size="8" font-weight="700" fill="#5b8dee">7.</text>
+      <text x="1071" y="82" text-anchor="middle" font-size="8" font-weight="700" fill="#5b8dee">Va</text>
+      <text x="1071" y="94" text-anchor="middle" font-size="8" font-weight="700" fill="#5b8dee">li</text>
+      <text x="1071" y="106" text-anchor="middle" font-size="8" font-weight="700" fill="#5b8dee">d</text>
+    </svg>
+
+    <!-- Agent detail table -->
+    <table style="margin-top:16px;">
+      <tr><th>Agent</th><th>Input</th><th>AI Kya Karta Hai</th><th>Output</th><th>Failure</th></tr>
+      <tr>
+        <td><strong>1. Discovery</strong></td>
+        <td>vCenter credentials</td>
+        <td>pyVmomi se connect — VM name, CPU, RAM, disk, OS, network, datastore, power state fetch karta hai</td>
+        <td><code>inventory.json</code></td>
+        <td>→ END (failed)</td>
+      </tr>
+      <tr>
+        <td><strong>2. Dependency</strong></td>
+        <td>inventory.json</td>
+        <td>LLM VM names + network ports analyze karta hai — Database, App, Web, Monitoring relationships detect karta hai</td>
+        <td><code>dep_graph.json</code></td>
+        <td>→ planning skip</td>
+      </tr>
+      <tr>
+        <td><strong>3. Risk</strong></td>
+        <td>inventory + dep_graph</td>
+        <td>LLM production tags, CPU usage, critical services score karta hai — high/medium/low risk assign karta hai</td>
+        <td><code>risk_report.json</code></td>
+        <td>→ default scores</td>
+      </tr>
+      <tr>
+        <td><strong>4. Planning</strong></td>
+        <td>inventory + risk + dep_graph</td>
+        <td>LLM optimal migration batch order decide karta hai — dependency order, maintenance windows, parallel groups</td>
+        <td><code>plan.json</code></td>
+        <td>→ END (failed)</td>
+      </tr>
+      <tr>
+        <td><strong>5. Human Gate</strong></td>
+        <td>plan.json</td>
+        <td><code>interrupt()</code> — graph pause ho jata hai. Admin plan review karta hai, approve ya modify karta hai UI se</td>
+        <td>MigrationRequest</td>
+        <td>cancel → END</td>
+      </tr>
+      <tr>
+        <td><strong>6. Migration</strong></td>
+        <td>MigrationRequest + plan</td>
+        <td>Celery tasks spawn karta hai — virt-v2v se VMDK→QCOW2, Glance upload, Nova create, Neutron port attach</td>
+        <td>task_ids[]</td>
+        <td>→ END (failed)</td>
+      </tr>
+      <tr>
+        <td><strong>7. Validation</strong></td>
+        <td>Migrated VMs list</td>
+        <td>Ping, SSH, CPU/RAM check, service status verify karta hai — health score generate karta hai</td>
+        <td><code>health_report.json</code></td>
+        <td>→ alert + log</td>
+      </tr>
+    </table>
+
+    <div class="callout" style="margin-top:12px;">
+      State persisted to <code>data/langgraph_checkpoints.sqlite</code> — resume karo kisi bhi workflow ko
+      <code>POST /api/v1/workflow/{thread_id}/resume</code> se. SSE stream via
+      <code>GET /api/v1/workflow/{thread_id}/stream</code>.
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══ SECTION 4 — AI CONCEPTS EXPLAINED ═══ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>VMware Concepts — Definition + Example (vJailbreak se seekha)</h2>
+
+    <div class="grid-3" style="margin-bottom:20px;">
+      <div class="card">
+        <div class="card-title">VDDK — VMware Virtual Disk Development Kit</div>
+        <div class="card-sub" style="margin-bottom:8px;">VMware disks ko programmatically access karne ki library. Bina VDDK ke VMDK nahi padh sakte.</div>
+        <div class="callout" style="font-size:12px;">
+          <strong>Example:</strong><br/>
+          Bina VDDK: <code>Permission denied: /vm/disk.vmdk</code><br/>
+          VDDK ke saath: <code>vmdk.read(offset=0, size=512MB)</code> ✓<br/>
+          vJailbreak isko <code>/home/ubuntu/vmware-vix-disklib-distrib/</code> me rakhta hai
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">CBT — Change Block Tracking</div>
+        <div class="card-sub" style="margin-bottom:8px;">VMware feature jo track karta hai VM disk pe kaunse blocks change hue. Live migration ke liye critical.</div>
+        <div class="callout green" style="font-size:12px;">
+          <strong>Example:</strong><br/>
+          VM total disk: 500 GB<br/>
+          Last 24hr changes: 5 GB<br/>
+          CBT se: Sirf 5 GB copy ✓<br/>
+          <strong>Savings: 99% less data transfer!</strong>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">virt-v2v — Virtual to Virtual Converter</div>
+        <div class="card-sub" style="margin-bottom:8px;">Red Hat ka tool jo VMware VMs ko KVM/OpenStack format me convert karta hai. vJailbreak ka core engine.</div>
+        <div class="callout orange" style="font-size:12px;">
+          <strong>Example:</strong><br/>
+          <code>server.vmdk</code> (VMware format)<br/>
+          ↓ virt-v2v runs ↓<br/>
+          <code>server.qcow2</code> (OpenStack/KVM format)<br/>
+          Windows VMs me virtio drivers bhi inject karta hai
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">govmomi / pyVmomi</div>
+        <div class="card-sub" style="margin-bottom:8px;">VMware vSphere API ke official clients. vJailbreak Go me govmomi use karta hai, hum Python me pyVmomi.</div>
+        <div class="callout" style="font-size:12px;">
+          <strong>Example:</strong><br/>
+          <code>si = connect.Connect(host="vcenter.example.com")</code><br/>
+          <code>content = si.RetrieveContent()</code><br/>
+          <code>vm_list = content.rootFolder.childEntity[0]...</code>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Hot vs Cold Migration</div>
+        <div class="card-sub" style="margin-bottom:8px;">Cold = VM band karke migrate. Hot = VM chal rahi ho tab migrate (CBT se). vJailbreak dono support karta hai.</div>
+        <div class="callout purple" style="font-size:12px;">
+          <strong>Hot Migration Steps:</strong><br/>
+          1. VM chal rahi hai → Snapshot lo<br/>
+          2. Base disk copy karo (VDDK+CBT)<br/>
+          3. Delta sync karo (changed blocks)<br/>
+          4. Final cutover — minimal downtime
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">OpenStack Components</div>
+        <div class="card-sub" style="margin-bottom:8px;">MigrateAI ke 4 main OpenStack services jo hum use karte hain migration ke liye.</div>
+        <div class="callout" style="font-size:12px;">
+          <strong>Keystone:</strong> Auth — token milta hai<br/>
+          <strong>Glance:</strong> Image store — QCOW2 upload<br/>
+          <strong>Nova:</strong> VM create — flavor + image se<br/>
+          <strong>Neutron:</strong> Network — port attach<br/>
+          <strong>Cinder:</strong> Storage — persistent volumes
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══ SECTION 5 — MIGRATION PIPELINE ═══ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>Per-VM Migration Pipeline — ESXi → OpenStack</h2>
+    <p class="sub" style="margin-bottom:16px;">Har VM parallel me migrate hoti hai (Celery workers, max 5). Parent task progress = average of all VM child tasks.</p>
+
+    <svg viewBox="0 0 1100 120" width="100%" style="display:block;border:1px solid #252c42;border-radius:10px;background:#0a0d14;">
+      <!-- Lines -->
+      <line x1="86" y1="52" x2="148" y2="52" stroke="#252c42" stroke-width="1"/>
+      <line x1="202" y1="52" x2="264" y2="52" stroke="#252c42" stroke-width="1"/>
+      <line x1="318" y1="52" x2="380" y2="52" stroke="#252c42" stroke-width="1"/>
+      <line x1="434" y1="52" x2="496" y2="52" stroke="#f97316" stroke-width="1.5"/>
+      <line x1="550" y1="52" x2="612" y2="52" stroke="#f97316" stroke-width="1.5"/>
+      <line x1="666" y1="52" x2="728" y2="52" stroke="#f97316" stroke-width="1.5"/>
+      <line x1="782" y1="52" x2="844" y2="52" stroke="#22d3a0" stroke-width="1.5"/>
+      <line x1="898" y1="52" x2="960" y2="52" stroke="#22d3a0" stroke-width="1.5"/>
+      <line x1="1014" y1="52" x2="1076" y2="52" stroke="#5b8dee" stroke-width="1.5"/>
+
+      <!-- Step 01 - ESXi Auth -->
+      <circle cx="53" cy="52" r="20" fill="#5b8dee33" stroke="#5b8dee" stroke-width="1.5"/>
+      <text x="53" y="56" text-anchor="middle" font-size="9" font-weight="700" fill="#5b8dee">01</text>
+      <text x="53" y="82" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">ESXi Auth</text>
+      <text x="53" y="94" text-anchor="middle" font-size="8" fill="#7a85a0">pyVmomi connect</text>
+
+      <!-- 02 Snapshot -->
+      <circle cx="169" cy="52" r="20" fill="#252c42" stroke="#252c42" stroke-width="1"/>
+      <text x="169" y="56" text-anchor="middle" font-size="9" font-weight="700" fill="#7a85a0">02</text>
+      <text x="169" y="82" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">Snapshot</text>
+      <text x="169" y="94" text-anchor="middle" font-size="8" fill="#7a85a0">cold/hot mode</text>
+
+      <!-- 03 VDDK Setup -->
+      <circle cx="285" cy="52" r="20" fill="#252c42" stroke="#252c42" stroke-width="1"/>
+      <text x="285" y="56" text-anchor="middle" font-size="9" font-weight="700" fill="#7a85a0">03</text>
+      <text x="285" y="82" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">VDDK Setup</text>
+      <text x="285" y="94" text-anchor="middle" font-size="8" fill="#7a85a0">disk lib load</text>
+
+      <!-- 04 CBT Stream -->
+      <circle cx="401" cy="52" r="20" fill="#f9731622" stroke="#f97316" stroke-width="1.5"/>
+      <text x="401" y="56" text-anchor="middle" font-size="9" font-weight="700" fill="#f97316">04</text>
+      <text x="401" y="82" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">CBT Stream</text>
+      <text x="401" y="94" text-anchor="middle" font-size="8" fill="#7a85a0">nbdkit + VDDK</text>
+
+      <!-- 05 Power Off -->
+      <circle cx="517" cy="52" r="20" fill="#f9731633" stroke="#f97316" stroke-width="1.5"/>
+      <text x="517" y="56" text-anchor="middle" font-size="9" font-weight="700" fill="#f97316">05</text>
+      <text x="517" y="82" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">Power Off</text>
+      <text x="517" y="94" text-anchor="middle" font-size="8" fill="#7a85a0">cutover point</text>
+
+      <!-- 06 virt-v2v -->
+      <circle cx="633" cy="52" r="20" fill="#f9731644" stroke="#f97316" stroke-width="2"/>
+      <text x="633" y="56" text-anchor="middle" font-size="9" font-weight="700" fill="#f97316">06</text>
+      <text x="633" y="82" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">virt-v2v</text>
+      <text x="633" y="94" text-anchor="middle" font-size="8" fill="#7a85a0">VMDK→QCOW2</text>
+
+      <!-- 07 Glance Upload -->
+      <circle cx="749" cy="52" r="20" fill="#22d3a022" stroke="#22d3a0" stroke-width="1.5"/>
+      <text x="749" y="56" text-anchor="middle" font-size="9" font-weight="700" fill="#22d3a0">07</text>
+      <text x="749" y="82" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">Glance Upload</text>
+      <text x="749" y="94" text-anchor="middle" font-size="8" fill="#7a85a0">image store</text>
+
+      <!-- 08 Nova Create -->
+      <circle cx="865" cy="52" r="20" fill="#22d3a033" stroke="#22d3a0" stroke-width="1.5"/>
+      <text x="865" y="56" text-anchor="middle" font-size="9" font-weight="700" fill="#22d3a0">08</text>
+      <text x="865" y="82" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">Nova Create</text>
+      <text x="865" y="94" text-anchor="middle" font-size="8" fill="#7a85a0">VM boot</text>
+
+      <!-- 09 Neutron -->
+      <circle cx="981" cy="52" r="20" fill="#22d3a022" stroke="#22d3a0" stroke-width="1.5"/>
+      <text x="981" y="56" text-anchor="middle" font-size="9" font-weight="700" fill="#22d3a0">09</text>
+      <text x="981" y="82" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">Neutron Port</text>
+      <text x="981" y="94" text-anchor="middle" font-size="8" fill="#7a85a0">network map</text>
+
+      <!-- 10 Validate -->
+      <circle cx="1087" cy="52" r="20" fill="#5b8dee33" stroke="#5b8dee" stroke-width="1.5"/>
+      <text x="1087" y="56" text-anchor="middle" font-size="9" font-weight="700" fill="#5b8dee">10</text>
+      <text x="1087" y="82" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">Health Check</text>
+      <text x="1087" y="94" text-anchor="middle" font-size="8" fill="#7a85a0">ping · SSH</text>
+    </svg>
+
+    <div class="grid-2" style="margin-top:16px;">
+      <table>
+        <tr><th>Step</th><th>Tool/API</th><th>Detail</th></tr>
+        <tr><td><span class="badge badge-blue">01</span> ESXi Auth</td><td><code>pyVmomi</code></td><td>vCenter SSL connect, session create</td></tr>
+        <tr><td><span class="badge badge-blue">02</span> Snapshot</td><td><code>govmomi-style</code></td><td>Cold: VM power off. Hot: snapshot create</td></tr>
+        <tr><td><span class="badge badge-blue">03</span> VDDK Setup</td><td><code>VDDK lib</code></td><td>vmware-vix-disklib-distrib load</td></tr>
+        <tr><td><span class="badge badge-orange">04</span> CBT Stream</td><td><code>nbdkit + VDDK</code></td><td>Changed blocks only stream (incremental)</td></tr>
+        <tr><td><span class="badge badge-orange">05</span> Power Off</td><td><code>pyVmomi</code></td><td>Final cutover — minimal downtime window</td></tr>
+      </table>
+      <table>
+        <tr><th>Step</th><th>Tool/API</th><th>Detail</th></tr>
+        <tr><td><span class="badge badge-orange">06</span> virt-v2v</td><td><code>virt-v2v</code></td><td>VMDK → QCOW2, virtio drivers inject</td></tr>
+        <tr><td><span class="badge badge-green">07</span> Glance Upload</td><td><code>openstack SDK</code></td><td>QCOW2 image upload to Image Store</td></tr>
+        <tr><td><span class="badge badge-green">08</span> Nova Create</td><td><code>nova.servers.create()</code></td><td>Flavor map, image ref, security group</td></tr>
+        <tr><td><span class="badge badge-green">09</span> Neutron Port</td><td><code>neutron.ports.create()</code></td><td>VMware network → OpenStack network map</td></tr>
+        <tr><td><span class="badge badge-blue">10</span> Health Check</td><td><code>ping + SSH</code></td><td>CPU, RAM, disk, service status verify</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══ SECTION 6 — AI PLANNING EXAMPLE ═══ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>AI Migration Planning — vJailbreak vs MigrateAI</h2>
+    <p class="sub" style="margin-bottom:16px;">Real example: 4 VMs ka migration order AI kaise decide karta hai.</p>
+
+    <div class="grid-2" style="margin-bottom:16px;">
+      <div class="card">
+        <div class="card-title" style="color:#f87171;">❌ vJailbreak (Hardcoded) — Kya Problem Hai</div>
+        <div style="font-size:13px; color: var(--text-sub); margin-top:8px;">
+          <strong style="color:var(--text);">Inventory:</strong> VM1-Database, VM2-AppServer, VM3-Frontend, VM4-Monitoring<br/><br/>
+          <strong style="color:var(--text);">vJailbreak kya karta hai:</strong> "Migrate all" — alphabetical/random order<br/><br/>
+          <code style="display:block; margin:8px 0; padding:8px; background:var(--surface2); border-radius:4px; font-size:12px;">
+            VM3-Frontend ← migrate (depends on VM2 jo abhi migrate nahi hua!)<br/>
+            VM2-AppServer ← migrate (depends on VM1 jo abhi migrate nahi hua!)<br/>
+            VM4-Monitoring ← migrate<br/>
+            VM1-Database ← migrate last
+          </code>
+          <strong style="color:#f87171;">Result: Frontend broken for hours. App down. Data loss risk.</strong>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" style="color:#22d3a0;">✓ MigrateAI (AI Agentic) — Correct Order</div>
+        <div style="font-size:13px; color: var(--text-sub); margin-top:8px;">
+          <strong style="color:var(--text);">Dependency Agent finds:</strong> Frontend → AppServer → Database<br/><br/>
+          <strong style="color:var(--text);">Risk Agent scores:</strong> Database=HIGH, App=HIGH, Frontend=MEDIUM, Monitor=LOW<br/><br/>
+          <strong style="color:var(--text);">Planning Agent decides:</strong>
+          <code style="display:block; margin:8px 0; padding:8px; background:var(--surface2); border-radius:4px; font-size:12px;">
+            Batch 1 (2 AM): VM1-Database [HIGH RISK - migrate first, standalone]<br/>
+            Batch 2 (3 AM): VM2-AppServer [depends on DB - DB already migrated]<br/>
+            Batch 3 (4 AM): VM3-Frontend [depends on App - App already migrated]<br/>
+            Batch 4 (5 AM): VM4-Monitoring [LOW risk - last, monitors others]
+          </code>
+          <strong style="color:#22d3a0;">Result: Zero downtime. Dependencies respected. Production safe.</strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout orange">
+      <strong>LLM Prompt (Planning Agent):</strong> "Given this VM inventory with dependencies [JSON] and risk scores [JSON], create an optimal migration plan. Database VMs first, then Apps, then Frontends. Respect maintenance windows. Consider CPU/RAM load. Output JSON with batches, rationale, estimated time."
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══ SECTION 7 — OPENSTACK MAPPING ═══ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>VMware → OpenStack Resource Mapping</h2>
+
+    <div class="grid-2">
+      <div>
+        <h3>Network Mapping</h3>
+        <table>
+          <tr><th>VMware</th><th>OpenStack</th><th>Agent Action</th></tr>
+          <tr><td><code>VM Network</code></td><td><code>Neutron Network</code></td><td>Name match ya manual map</td></tr>
+          <tr><td><code>vSwitch Port Group</code></td><td><code>Neutron Subnet</code></td><td>CIDR + VLAN ID map</td></tr>
+          <tr><td><code>NSX Segment</code></td><td><code>Neutron Segment</code></td><td>Provider network map</td></tr>
+          <tr><td><code>vNIC MAC</code></td><td><code>Neutron Port MAC</code></td><td>Preserve for DNS compat</td></tr>
+          <tr><td><code>vCenter IP</code></td><td><code>Floating IP / Fixed IP</code></td><td>IP reservation request</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>Storage &amp; Compute Mapping</h3>
+        <table>
+          <tr><th>VMware</th><th>OpenStack</th><th>Tool</th></tr>
+          <tr><td><code>VMDK</code></td><td><code>QCOW2 (Glance)</code></td><td>virt-v2v conversion</td></tr>
+          <tr><td><code>Datastore</code></td><td><code>Cinder Volume Type</code></td><td>Storage policy map</td></tr>
+          <tr><td><code>vCPU count</code></td><td><code>Nova Flavor vCPUs</code></td><td>Nearest flavor match</td></tr>
+          <tr><td><code>RAM MB</code></td><td><code>Nova Flavor RAM</code></td><td>Nearest or exact match</td></tr>
+          <tr><td><code>VM Tag: production</code></td><td><code>Nova metadata tag</code></td><td>Metadata copy</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══ SECTION 8 — TECH STACK ═══ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>Technology Stack</h2>
+    <div class="grid-4" style="margin-top:12px;">
+      <div>
+        <h3>Backend</h3>
+        <div class="pills">
+          <span class="pill blue">FastAPI</span>
+          <span class="pill">SQLAlchemy</span>
+          <span class="pill blue">pyVmomi</span>
+          <span class="pill">openstack SDK</span>
+          <span class="pill blue">LangGraph</span>
+          <span class="pill">APScheduler</span>
+          <span class="pill">cryptography</span>
+          <span class="pill">PyJWT</span>
+          <span class="pill">uvicorn</span>
+          <span class="pill">paramiko</span>
+        </div>
+      </div>
+      <div>
+        <h3>Frontend</h3>
+        <div class="pills">
+          <span class="pill blue">React 18</span>
+          <span class="pill">Vite</span>
+          <span class="pill">Tailwind CSS</span>
+          <span class="pill">Axios</span>
+          <span class="pill">React Router 6</span>
+          <span class="pill">SSE Client</span>
+          <span class="pill">react-toastify</span>
+          <span class="pill">Recharts</span>
+        </div>
+      </div>
+      <div>
+        <h3>AI / Agents</h3>
+        <div class="pills">
+          <span class="pill orange">LangGraph</span>
+          <span class="pill orange">LangChain</span>
+          <span class="pill">openai (GPT-4o)</span>
+          <span class="pill">anthropic (Claude)</span>
+          <span class="pill">google-genai</span>
+          <span class="pill">DeepSeek</span>
+          <span class="pill purple">Ollama (local)</span>
+        </div>
+      </div>
+      <div>
+        <h3>Infrastructure</h3>
+        <div class="pills">
+          <span class="pill green">virt-v2v</span>
+          <span class="pill green">VDDK</span>
+          <span class="pill green">nbdkit</span>
+          <span class="pill">PostgreSQL</span>
+          <span class="pill">Redis</span>
+          <span class="pill">Celery</span>
+          <span class="pill">Docker</span>
+          <span class="pill">K3s / K8s</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══ SECTION 9 — DATA FLOW + SECURITY ═══ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>Data Flow &amp; Security</h2>
+
+    <div class="grid-2">
+      <div>
+        <h3>Key Data Files</h3>
+        <table>
+          <tr><th>File</th><th>Purpose</th></tr>
+          <tr><td><code>inventory_{uuid}.json</code></td><td>Discovery Agent ka output — full VM list with specs</td></tr>
+          <tr><td><code>dep_graph_{uuid}.json</code></td><td>Dependency Agent — VM relationship graph</td></tr>
+          <tr><td><code>risk_{uuid}.json</code></td><td>Risk Agent — per-VM risk scores + reasons</td></tr>
+          <tr><td><code>plan_{uuid}.json</code></td><td>Planning Agent — migration batches + windows</td></tr>
+          <tr><td><code>health_{uuid}.json</code></td><td>Validation Agent — post-migration health report</td></tr>
+          <tr><td><code>langgraph_checkpoints.sqlite</code></td><td>LangGraph durable state per workflow thread_id</td></tr>
+          <tr><td><code>llm_api_keys.json</code></td><td>Fernet encrypted LLM provider API keys</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>Security Mechanisms</h3>
+        <table>
+          <tr><th>Mechanism</th><th>Detail</th></tr>
+          <tr><td>JWT (HS256)</td><td>24h expiry · Bearer header on all API calls</td></tr>
+          <tr><td>Fernet Encryption</td><td>vCenter + OpenStack passwords encrypted at rest</td></tr>
+          <tr><td>RBAC</td><td>Admin / Operator / Viewer roles for UI access</td></tr>
+          <tr><td>TLS/SSL</td><td>vCenter + OpenStack API calls over HTTPS</td></tr>
+          <tr><td>Audit Log</td><td>Every migration action logged with timestamp + user</td></tr>
+          <tr><td>Secret Manager</td><td>Credentials in env vars / Vault (never in code)</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══ SECTION 10 — DEPLOYMENT ═══ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>Deployment</h2>
+    <div class="grid-2">
+      <div>
+        <h3>Development</h3>
+        <table>
+          <tr><th>Command</th><th>Action</th></tr>
+          <tr><td><code>pip install -r requirements.txt</code></td><td>Backend dependencies install</td></tr>
+          <tr><td><code>uvicorn main:app --reload</code></td><td>FastAPI start on :8000</td></tr>
+          <tr><td><code>npm run dev</code></td><td>Vite React dev server on :5173</td></tr>
+          <tr><td><code>celery -A tasks worker</code></td><td>Migration task workers start</td></tr>
+          <tr><td><code>redis-server</code></td><td>Task queue broker start</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>Production (Docker / K3s)</h3>
+        <table>
+          <tr><th>Aspect</th><th>Detail</th></tr>
+          <tr><td>Dockerfile</td><td>Multi-stage: React build → FastAPI serve</td></tr>
+          <tr><td>docker-compose.yml</td><td>API + Celery + Redis + PostgreSQL services</td></tr>
+          <tr><td>K3s Deploy</td><td>Same as vJailbreak — Kubernetes operator pattern</td></tr>
+          <tr><td>Persistence</td><td>Mount <code>/data</code> volume for DB + logs</td></tr>
+          <tr><td>VDDK</td><td>Mount <code>/vmware-vix-disklib-distrib</code> in migration pod</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <div>
+      <p style="font-size:12px; color:#4a5568;">MigrateAI — AI-Powered ESXi → OpenStack Migration Platform</p>
+      <p style="font-size:12px; color:#4a5568; margin-top:2px;">Based on vJailbreak architecture · Enhanced with LangGraph + LLM reasoning · June 2026</p>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <span class="badge badge-blue">LangGraph</span>
+      <span class="badge badge-orange">7 Agents</span>
+      <span class="badge badge-green">ESXi → OpenStack</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

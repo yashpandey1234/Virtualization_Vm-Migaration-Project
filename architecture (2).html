@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VM-Exit — Architecture Document</title>
+<style>
+  :root {
+    --bg:        #0f1117;
+    --surface:   #1a1d27;
+    --surface2:  #22263a;
+    --border:    #2e3347;
+    --text:      #e2e8f0;
+    --text-sub:  #8892a4;
+    --accent:    #4f8ef7;
+    --success:   #34d399;
+    --warning:   #fbbf24;
+    --danger:    #f87171;
+    --pill-bg:   #22263a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 40px 24px;
+  }
+  .page { max-width: 1100px; margin: 0 auto; }
+
+  h1 { font-size: 28px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  h2 { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  h3 { font-size: 14px; font-weight: 600; color: var(--text-sub); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+  p, .sub { font-size: 14px; color: var(--text-sub); margin-bottom: 0; }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  /* Stats row */
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .stat-val { font-size: 16px; font-weight: 700; color: var(--accent); }
+  .stat-label { font-size: 11px; color: var(--text-sub); margin-top: 2px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; background: var(--surface2); color: var(--text-sub); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+  code { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; background: var(--surface2); padding: 1px 5px; border-radius: 3px; color: var(--accent); }
+
+  /* Callout */
+  .callout { background: var(--surface); border-left: 3px solid var(--accent); border-radius: 6px; padding: 12px 16px; font-size: 13px; color: var(--text-sub); }
+
+  /* Pills */
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { background: var(--pill-bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; font-size: 12px; color: var(--text-sub); }
+
+  /* Grid layout */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
+
+  /* Section */
+  .section { margin-bottom: 0; }
+
+  /* Legend dot */
+  .legend { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-sub); }
+  .leg-line { width: 28px; height: 2px; }
+  .leg-dash { background: none; border-top: 2px dashed var(--warning); }
+
+  svg text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+  @media (max-width: 768px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div style="margin-bottom:24px;">
+    <h1>VM-Exit &mdash; Architecture Document</h1>
+    <p style="margin-top:6px;">Full-stack VM migration platform — VMware (vCenter / ESXi) → KVM — with LangGraph agentic workflow, multi-LLM planning, and human-in-the-loop approval.</p>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats" style="margin-bottom:32px;">
+    <div class="stat"><div class="stat-val">FastAPI</div><div class="stat-label">Backend framework</div></div>
+    <div class="stat"><div class="stat-val">React 18</div><div class="stat-label">Frontend (Vite + Tailwind)</div></div>
+    <div class="stat"><div class="stat-val">LangGraph</div><div class="stat-label">Agent orchestration</div></div>
+    <div class="stat"><div class="stat-val">virt-v2v</div><div class="stat-label">VM conversion tool</div></div>
+    <div class="stat"><div class="stat-val">5 LLMs</div><div class="stat-label">OpenAI · Gemini · Claude · DeepSeek · Ollama</div></div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 1 — SYSTEM ARCHITECTURE DIAGRAM
+  ══════════════════════════════════════════════ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>System Architecture</h2>
+    <p class="sub" style="margin-bottom:16px;">Five horizontal layers from browser to persistence. Arrows show primary call paths. Dashed arrows = external LLM API calls.</p>
+
+    <svg viewBox="0 0 1060 560" width="100%" style="display:block;border:1px solid #2e3347;border-radius:10px;background:#0f1117;">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#2e3347"/>
+        </marker>
+        <marker id="arr-w" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#fbbf24"/>
+        </marker>
+      </defs>
+
+      <!-- Layer bands -->
+      <rect x="8" y="12" width="1044" height="95" rx="8" fill="#4f8ef722" stroke="none"/>
+      <rect x="8" y="119" width="1044" height="95" rx="8" fill="#34d39922" stroke="none"/>
+      <rect x="8" y="226" width="1044" height="95" rx="8" fill="#fbbf2422" stroke="none"/>
+      <rect x="8" y="333" width="1044" height="95" rx="8" fill="#4f8ef714" stroke="none"/>
+      <rect x="8" y="440" width="1044" height="95" rx="8" fill="#1a1d27" stroke="none"/>
+
+      <!-- Layer labels (right side) -->
+      <text x="1048" y="65"  text-anchor="end" font-size="11" fill="#4f8ef7" opacity=".7">Browser / Client</text>
+      <text x="1048" y="172" text-anchor="end" font-size="11" fill="#34d399" opacity=".7">FastAPI Backend</text>
+      <text x="1048" y="279" text-anchor="end" font-size="11" fill="#fbbf24" opacity=".7">Services &amp; Agents</text>
+      <text x="1048" y="386" text-anchor="end" font-size="11" fill="#8892a4" opacity=".7">Providers / Remote</text>
+      <text x="1048" y="493" text-anchor="end" font-size="11" fill="#8892a4" opacity=".7">Persistence</text>
+
+      <!-- ── LAYER 0 – Browser ── -->
+      <!-- React SPA -->
+      <rect x="24"  y="26" width="155" height="58" rx="7" fill="#4f8ef733" stroke="#4f8ef7" stroke-width="1"/>
+      <text x="101" y="50" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">React SPA</text>
+      <text x="101" y="68" text-anchor="middle" font-size="10" fill="#8892a4">Vite · Tailwind · 6 pages</text>
+
+      <!-- AuthContext -->
+      <rect x="194" y="26" width="145" height="58" rx="7" fill="#4f8ef722" stroke="#2e3347" stroke-width="1"/>
+      <text x="266" y="50" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">AuthContext</text>
+      <text x="266" y="68" text-anchor="middle" font-size="10" fill="#8892a4">JWT / localStorage</text>
+
+      <!-- TaskContext -->
+      <rect x="354" y="26" width="145" height="58" rx="7" fill="#4f8ef722" stroke="#2e3347" stroke-width="1"/>
+      <text x="426" y="50" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">TaskContext</text>
+      <text x="426" y="68" text-anchor="middle" font-size="10" fill="#8892a4">Polling / task history</text>
+
+      <!-- AgenticWorkflow UI -->
+      <rect x="514" y="26" width="165" height="58" rx="7" fill="#4f8ef733" stroke="#4f8ef7" stroke-width="1"/>
+      <text x="596" y="50" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">AgenticWorkflow UI</text>
+      <text x="596" y="68" text-anchor="middle" font-size="10" fill="#8892a4">SSE stream · approval gate</text>
+
+      <!-- api.js -->
+      <rect x="700" y="26" width="155" height="58" rx="7" fill="#4f8ef733" stroke="#4f8ef7" stroke-width="1"/>
+      <text x="777" y="50" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">api.js (Axios)</text>
+      <text x="777" y="68" text-anchor="middle" font-size="10" fill="#8892a4">Bearer token interceptor</text>
+
+      <!-- ── LAYER 1 – FastAPI ── -->
+      <!-- auth_routes -->
+      <rect x="24"  y="133" width="145" height="58" rx="7" fill="#34d39933" stroke="#34d399" stroke-width="1"/>
+      <text x="96"  y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">auth_routes</text>
+      <text x="96"  y="175" text-anchor="middle" font-size="10" fill="#8892a4">POST /auth/login → JWT</text>
+
+      <!-- routes -->
+      <rect x="184" y="133" width="155" height="58" rx="7" fill="#34d39933" stroke="#34d399" stroke-width="1"/>
+      <text x="261" y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">routes</text>
+      <text x="261" y="175" text-anchor="middle" font-size="10" fill="#8892a4">vCenter · MCP · migrate</text>
+
+      <!-- workflow_routes -->
+      <rect x="354" y="133" width="155" height="58" rx="7" fill="#34d39944" stroke="#34d399" stroke-width="1.5"/>
+      <text x="431" y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">workflow_routes</text>
+      <text x="431" y="175" text-anchor="middle" font-size="10" fill="#8892a4">LangGraph SSE stream</text>
+
+      <!-- tasks router -->
+      <rect x="524" y="133" width="145" height="58" rx="7" fill="#34d39922" stroke="#2e3347" stroke-width="1"/>
+      <text x="596" y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">tasks router</text>
+      <text x="596" y="175" text-anchor="middle" font-size="10" fill="#8892a4">/task/execution/:id</text>
+
+      <!-- APScheduler -->
+      <rect x="688" y="133" width="165" height="58" rx="7" fill="#34d39922" stroke="#2e3347" stroke-width="1"/>
+      <text x="770" y="158" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">APScheduler</text>
+      <text x="770" y="175" text-anchor="middle" font-size="10" fill="#8892a4">vCenter ping every 5 min</text>
+
+      <!-- ── LAYER 2 – Services ── -->
+      <!-- vcenter_service -->
+      <rect x="24"  y="240" width="160" height="58" rx="7" fill="#fbbf2433" stroke="#fbbf24" stroke-width="1"/>
+      <text x="104" y="265" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">vcenter_service</text>
+      <text x="104" y="282" text-anchor="middle" font-size="10" fill="#8892a4">register · inventory · CRUD</text>
+
+      <!-- migration_service -->
+      <rect x="200" y="240" width="165" height="58" rx="7" fill="#fbbf2444" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="282" y="265" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">migration_service</text>
+      <text x="282" y="282" text-anchor="middle" font-size="10" fill="#8892a4">ThreadPoolExecutor (×5)</text>
+
+      <!-- planning_service -->
+      <rect x="380" y="240" width="160" height="58" rx="7" fill="#fbbf2433" stroke="#fbbf24" stroke-width="1"/>
+      <text x="460" y="265" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">planning_service</text>
+      <text x="460" y="282" text-anchor="middle" font-size="10" fill="#8892a4">LLM dispatch · plan JSON</text>
+
+      <!-- LangGraph Agents -->
+      <rect x="556" y="240" width="175" height="58" rx="7" fill="#fbbf2444" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="643" y="258" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">LangGraph Agents</text>
+      <text x="643" y="274" text-anchor="middle" font-size="10" fill="#8892a4">discovery→plan→gate</text>
+      <text x="643" y="288" text-anchor="middle" font-size="10" fill="#8892a4">→migrate</text>
+
+      <!-- LLM Clients -->
+      <rect x="748" y="240" width="160" height="58" rx="7" fill="#fbbf2422" stroke="#2e3347" stroke-width="1"/>
+      <text x="828" y="258" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">LLM Clients</text>
+      <text x="828" y="274" text-anchor="middle" font-size="10" fill="#8892a4">OpenAI · Gemini · Claude</text>
+      <text x="828" y="288" text-anchor="middle" font-size="10" fill="#8892a4">DeepSeek · Ollama</text>
+
+      <!-- ── LAYER 3 – Providers ── -->
+      <!-- VMwareConnector -->
+      <rect x="60"  y="347" width="175" height="58" rx="7" fill="#4f8ef722" stroke="#2e3347" stroke-width="1"/>
+      <text x="147" y="371" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">VMwareConnector</text>
+      <text x="147" y="389" text-anchor="middle" font-size="10" fill="#8892a4">pyvmomi · vSphere API</text>
+
+      <!-- KvmConnector -->
+      <rect x="260" y="347" width="175" height="58" rx="7" fill="#4f8ef733" stroke="#4f8ef7" stroke-width="1"/>
+      <text x="347" y="371" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">KvmConnector</text>
+      <text x="347" y="389" text-anchor="middle" font-size="10" fill="#8892a4">SSH · virt-v2v · virsh</text>
+
+      <!-- TaskController -->
+      <rect x="460" y="347" width="160" height="58" rx="7" fill="#4f8ef722" stroke="#2e3347" stroke-width="1"/>
+      <text x="540" y="371" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">TaskController</text>
+      <text x="540" y="389" text-anchor="middle" font-size="10" fill="#8892a4">CRUD task states</text>
+
+      <!-- Encryption / JWT -->
+      <rect x="644" y="347" width="175" height="58" rx="7" fill="#4f8ef722" stroke="#2e3347" stroke-width="1"/>
+      <text x="731" y="371" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Encryption / JWT</text>
+      <text x="731" y="389" text-anchor="middle" font-size="10" fill="#8892a4">Fernet (passwords) · HS256</text>
+
+      <!-- ── LAYER 4 – Persistence ── -->
+      <!-- SQLite vm_exit.db -->
+      <rect x="24"  y="454" width="180" height="58" rx="7" fill="#22263a" stroke="#2e3347" stroke-width="1"/>
+      <text x="114" y="478" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">SQLite (vm_exit.db)</text>
+      <text x="114" y="496" text-anchor="middle" font-size="10" fill="#8892a4">VCenter · MigTarget · Tasks</text>
+
+      <!-- LangGraph SQLite -->
+      <rect x="220" y="454" width="190" height="58" rx="7" fill="#22263a" stroke="#2e3347" stroke-width="1"/>
+      <text x="315" y="478" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">LangGraph SQLite</text>
+      <text x="315" y="496" text-anchor="middle" font-size="10" fill="#8892a4">workflow checkpoints</text>
+
+      <!-- Inventory JSON -->
+      <rect x="426" y="454" width="185" height="58" rx="7" fill="#22263a" stroke="#2e3347" stroke-width="1"/>
+      <text x="518" y="478" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Inventory JSON</text>
+      <text x="518" y="496" text-anchor="middle" font-size="10" fill="#8892a4">{uuid}.json · {uuid}_plan.json</text>
+
+      <!-- Rotating Logs -->
+      <rect x="628" y="454" width="165" height="58" rx="7" fill="#22263a" stroke="#2e3347" stroke-width="1"/>
+      <text x="710" y="478" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Rotating Logs</text>
+      <text x="710" y="496" text-anchor="middle" font-size="10" fill="#8892a4">vm_exit.log (10 MiB × 5)</text>
+
+      <!-- API Keys -->
+      <rect x="810" y="454" width="145" height="58" rx="7" fill="#22263a" stroke="#2e3347" stroke-width="1"/>
+      <text x="882" y="478" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">API Keys JSON</text>
+      <text x="882" y="496" text-anchor="middle" font-size="10" fill="#8892a4">llm_api_keys.json</text>
+
+      <!-- ── EDGES ── -->
+      <!-- api.js → auth_routes -->
+      <path d="M777,84 C777,108 96,108 96,133" fill="none" stroke="#2e3347" stroke-width="1" marker-end="url(#arr)"/>
+      <!-- api.js → routes -->
+      <path d="M777,84 C777,108 261,108 261,133" fill="none" stroke="#2e3347" stroke-width="1" marker-end="url(#arr)"/>
+      <!-- api.js → workflow_routes -->
+      <path d="M777,84 C777,108 431,108 431,133" fill="none" stroke="#2e3347" stroke-width="1.5" marker-end="url(#arr)"/>
+      <!-- api.js → tasks -->
+      <path d="M777,84 C777,108 596,108 596,133" fill="none" stroke="#2e3347" stroke-width="1" marker-end="url(#arr)"/>
+
+      <!-- routes → vcenter_service -->
+      <path d="M261,191 C261,215 104,215 104,240" fill="none" stroke="#2e3347" stroke-width="1" marker-end="url(#arr)"/>
+      <!-- routes → migration_service -->
+      <path d="M261,191 C261,215 282,215 282,240" fill="none" stroke="#34d399" stroke-width="1.2" marker-end="url(#arr)"/>
+      <!-- routes → planning_service -->
+      <path d="M261,191 C261,215 460,215 460,240" fill="none" stroke="#2e3347" stroke-width="1" marker-end="url(#arr)"/>
+
+      <!-- workflow_routes → LangGraph Agents -->
+      <path d="M431,191 C431,215 643,215 643,240" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- planning_service → LLM Clients (dashed = external) -->
+      <path d="M460,298 C460,322 828,322 828,240" fill="none" stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="5 3" marker-end="url(#arr-w)"/>
+
+      <!-- vcenter_service → VMwareConnector -->
+      <path d="M104,298 C104,322 147,322 147,347" fill="none" stroke="#2e3347" stroke-width="1" marker-end="url(#arr)"/>
+      <!-- migration_service → KvmConnector -->
+      <path d="M282,298 C282,322 347,322 347,347" fill="none" stroke="#fbbf24" stroke-width="1.2" marker-end="url(#arr)"/>
+      <!-- migration_service → TaskController -->
+      <path d="M282,298 C282,322 540,322 540,347" fill="none" stroke="#2e3347" stroke-width="1" marker-end="url(#arr)"/>
+
+      <!-- LangGraph Agents → VMwareConnector -->
+      <path d="M643,298 C643,322 147,322 147,347" fill="none" stroke="#fbbf24" stroke-width="1" marker-end="url(#arr)"/>
+      <!-- LangGraph Agents → planning_service -->
+      <path d="M643,240 C643,220 460,220 460,240" fill="none" stroke="#fbbf24" stroke-width="1" stroke-dasharray="4 3"/>
+
+      <!-- TaskController → SQLite -->
+      <path d="M540,405 C540,429 114,429 114,454" fill="none" stroke="#2e3347" stroke-width="1" marker-end="url(#arr)"/>
+      <!-- VMwareConnector → Inventory JSON -->
+      <path d="M147,405 C147,429 518,429 518,454" fill="none" stroke="#2e3347" stroke-width="1" marker-end="url(#arr)"/>
+      <!-- workflow_routes → LangGraph SQLite -->
+      <path d="M431,191 C431,430 315,430 315,454" fill="none" stroke="#2e3347" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#arr)"/>
+      <!-- planning_service → Inventory JSON -->
+      <path d="M460,298 C460,435 518,435 518,454" fill="none" stroke="#2e3347" stroke-width="1" marker-end="url(#arr)"/>
+    </svg>
+
+    <div class="legend">
+      <div class="legend-item"><div class="leg-line" style="background:#2e3347;height:2px;"></div> Internal call</div>
+      <div class="legend-item"><div class="leg-line leg-dash"></div> External LLM API</div>
+      <div class="legend-item"><div class="leg-line" style="background:#34d399;height:2px;"></div> Critical migration path</div>
+      <div class="legend-item"><div class="leg-line" style="background:#fbbf24;height:2px;"></div> Agent / async path</div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 2 — LANGGRAPH WORKFLOW DAG
+  ══════════════════════════════════════════════ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>LangGraph Agentic Workflow</h2>
+    <p class="sub" style="margin-bottom:16px;">Durable, resumable graph backed by SQLite checkpoints. Streams SSE events per node. Pauses at Human Gate until the user approves or cancels.</p>
+
+    <svg viewBox="0 0 1060 130" width="100%" style="display:block;border:1px solid #2e3347;border-radius:10px;background:#0f1117;">
+      <defs>
+        <marker id="a2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#4f8ef7"/>
+        </marker>
+      </defs>
+
+      <!-- Connecting lines -->
+      <line x1="110" y1="65" x2="190" y2="65" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#a2)"/>
+      <line x1="350" y1="65" x2="430" y2="65" stroke="#4f8ef7" stroke-width="1.5" marker-end="url(#a2)"/>
+      <line x1="590" y1="65" x2="670" y2="65" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#a2)"/>
+      <line x1="830" y1="65" x2="910" y2="65" stroke="#34d399" stroke-width="1.5" marker-end="url(#a2)"/>
+
+      <!-- Approval / cancel arrows on human_gate -->
+      <path d="M 730 40 Q 730 15 730 15 L 620 15 Q 540 15 540 40" fill="none" stroke="#f87171" stroke-width="1" stroke-dasharray="4 3"/>
+      <text x="640" y="12" font-size="10" fill="#f87171" text-anchor="middle">cancel → END</text>
+
+      <!-- START node -->
+      <rect x="20" y="42" width="90" height="46" rx="23" fill="#1a1d27" stroke="#2e3347" stroke-width="1"/>
+      <text x="65" y="66" text-anchor="middle" font-size="12" font-weight="600" fill="#8892a4">START</text>
+      <text x="65" y="81" text-anchor="middle" font-size="9" fill="#4a5568">workflow init</text>
+
+      <!-- Discovery -->
+      <rect x="190" y="35" width="160" height="58" rx="8" fill="#4f8ef733" stroke="#4f8ef7" stroke-width="1.5"/>
+      <text x="270" y="60" text-anchor="middle" font-size="13" font-weight="700" fill="#4f8ef7">Discovery</text>
+      <text x="270" y="77" text-anchor="middle" font-size="10" fill="#8892a4">Live VMware pull</text>
+      <text x="270" y="89" text-anchor="middle" font-size="9" fill="#4a5568">saves {uuid}.json</text>
+
+      <!-- Planning -->
+      <rect x="430" y="35" width="160" height="58" rx="8" fill="#fbbf2433" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="510" y="60" text-anchor="middle" font-size="13" font-weight="700" fill="#fbbf24">Planning</text>
+      <text x="510" y="77" text-anchor="middle" font-size="10" fill="#8892a4">LLM migration plan</text>
+      <text x="510" y="89" text-anchor="middle" font-size="9" fill="#4a5568">saves {uuid}_plan.json</text>
+
+      <!-- Human Gate -->
+      <rect x="670" y="35" width="160" height="58" rx="29" fill="#f8717133" stroke="#f87171" stroke-width="1.5"/>
+      <text x="750" y="60" text-anchor="middle" font-size="13" font-weight="700" fill="#f87171">Human Gate</text>
+      <text x="750" y="77" text-anchor="middle" font-size="10" fill="#8892a4">⏸ interrupt / approve</text>
+      <text x="750" y="89" text-anchor="middle" font-size="9" fill="#4a5568">resume with MigrationRequest</text>
+
+      <!-- Migration -->
+      <rect x="910" y="35" width="130" height="58" rx="8" fill="#34d39933" stroke="#34d399" stroke-width="1.5"/>
+      <text x="975" y="60" text-anchor="middle" font-size="13" font-weight="700" fill="#34d399">Migration</text>
+      <text x="975" y="77" text-anchor="middle" font-size="10" fill="#8892a4">Enqueue task</text>
+      <text x="975" y="89" text-anchor="middle" font-size="9" fill="#4a5568">daemon thread</text>
+    </svg>
+
+    <table style="margin-top:16px;">
+      <tr><th>Node</th><th>Action</th><th>On Failure</th></tr>
+      <tr><td><strong>Discovery</strong></td><td>Calls <code>collect_vcenter_inventory()</code>; saves <code>{uuid}.json</code> to disk; returns VM count summary</td><td>→ END (phase=failed)</td></tr>
+      <tr><td><strong>Planning</strong></td><td>Calls <code>generate_and_save_plan()</code>; dispatches to selected LLM; post-processes and saves <code>{uuid}_plan.json</code></td><td>→ END (phase=failed)</td></tr>
+      <tr><td><strong>Human Gate</strong></td><td><code>interrupt()</code> — pauses the graph; resumes with <code>MigrationRequest</code> JSON or <code>cancel:true</code></td><td>cancel → END (phase=cancelled)</td></tr>
+      <tr><td><strong>Migration</strong></td><td>Creates <code>migration_parent</code> task; spins daemon thread calling <code>migrate()</code>; returns <code>task_id</code></td><td>→ END (phase=failed)</td></tr>
+    </table>
+
+    <div class="callout" style="margin-top:12px;">
+      State is persisted to <code>backend/data/langgraph_checkpoints.sqlite</code>.
+      Resume any workflow later via <code>POST /api/v1/workflow/{thread_id}/resume</code> or stream via
+      <code>POST /api/v1/workflow/{thread_id}/resume-stream</code>.
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 3 — MIGRATION PIPELINE
+  ══════════════════════════════════════════════ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>Per-VM Migration Pipeline</h2>
+    <p class="sub" style="margin-bottom:16px;">Each VM is migrated in parallel (ThreadPoolExecutor, max 5 workers). Each VM has its own child task. Parent progress = average of all child percentages.</p>
+
+    <svg viewBox="0 0 1060 110" width="100%" style="display:block;border:1px solid #2e3347;border-radius:10px;background:#0f1117;">
+      <!-- Steps data via SVG groups -->
+      <!-- Step circles at y=48, spacing ~106px, starting x=53 -->
+      <!-- Connecting lines -->
+      <line x1="86" y1="48" x2="148" y2="48" stroke="#2e3347" stroke-width="1"/>
+      <line x1="192" y1="48" x2="254" y2="48" stroke="#2e3347" stroke-width="1"/>
+      <line x1="298" y1="48" x2="360" y2="48" stroke="#2e3347" stroke-width="1"/>
+      <line x1="404" y1="48" x2="466" y2="48" stroke="#2e3347" stroke-width="1"/>
+      <line x1="510" y1="48" x2="572" y2="48" stroke="#34d399" stroke-width="1.5"/>
+      <line x1="616" y1="48" x2="678" y2="48" stroke="#34d399" stroke-width="1.5"/>
+      <line x1="722" y1="48" x2="784" y2="48" stroke="#34d399" stroke-width="1.5"/>
+      <line x1="828" y1="48" x2="890" y2="48" stroke="#34d399" stroke-width="1.5"/>
+      <line x1="934" y1="48" x2="996" y2="48" stroke="#34d399" stroke-width="1.5"/>
+
+      <!-- 01 KVM Auth -->
+      <circle cx="53" cy="48" r="18" fill="#4f8ef733" stroke="#4f8ef7" stroke-width="1.5"/>
+      <text x="53" y="52" text-anchor="middle" font-size="10" font-weight="700" fill="#4f8ef7">01</text>
+      <text x="53" y="76" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">KVM Auth</text>
+      <text x="53" y="88" text-anchor="middle" font-size="8" fill="#8892a4">SSH connect</text>
+
+      <!-- 02 virt-v2v -->
+      <circle cx="159" cy="48" r="18" fill="#4f8ef722" stroke="#2e3347" stroke-width="1"/>
+      <text x="159" y="52" text-anchor="middle" font-size="10" font-weight="700" fill="#4f8ef7">02</text>
+      <text x="159" y="76" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">virt-v2v Install</text>
+      <text x="159" y="88" text-anchor="middle" font-size="8" fill="#8892a4">apt install</text>
+
+      <!-- 03 libvirtd -->
+      <circle cx="265" cy="48" r="18" fill="#4f8ef722" stroke="#2e3347" stroke-width="1"/>
+      <text x="265" y="52" text-anchor="middle" font-size="10" font-weight="700" fill="#4f8ef7">03</text>
+      <text x="265" y="76" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">libvirtd</text>
+      <text x="265" y="88" text-anchor="middle" font-size="8" fill="#8892a4">ensure active</text>
+
+      <!-- 04 Password File -->
+      <circle cx="371" cy="48" r="18" fill="#4f8ef722" stroke="#2e3347" stroke-width="1"/>
+      <text x="371" y="52" text-anchor="middle" font-size="10" font-weight="700" fill="#4f8ef7">04</text>
+      <text x="371" y="76" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">Password File</text>
+      <text x="371" y="88" text-anchor="middle" font-size="8" fill="#8892a4">write on KVM</text>
+
+      <!-- 05 Power Off -->
+      <circle cx="477" cy="48" r="18" fill="#fbbf2422" stroke="#fbbf24" stroke-width="1"/>
+      <text x="477" y="52" text-anchor="middle" font-size="10" font-weight="700" fill="#fbbf24">05</text>
+      <text x="477" y="76" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">Power Off VM</text>
+      <text x="477" y="88" text-anchor="middle" font-size="8" fill="#8892a4">via VMware API</text>
+
+      <!-- 06 virt-v2v nohup -->
+      <circle cx="583" cy="48" r="18" fill="#34d39933" stroke="#34d399" stroke-width="1.5"/>
+      <text x="583" y="52" text-anchor="middle" font-size="10" font-weight="700" fill="#34d399">06</text>
+      <text x="583" y="76" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">virt-v2v nohup</text>
+      <text x="583" y="88" text-anchor="middle" font-size="8" fill="#8892a4">VMDK→QCOW2</text>
+
+      <!-- 07 Poll Status -->
+      <circle cx="689" cy="48" r="18" fill="#34d39933" stroke="#34d399" stroke-width="1.5"/>
+      <text x="689" y="52" text-anchor="middle" font-size="10" font-weight="700" fill="#34d399">07</text>
+      <text x="689" y="76" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">Poll Status</text>
+      <text x="689" y="88" text-anchor="middle" font-size="8" fill="#8892a4">120 s · 20 h cap</text>
+
+      <!-- 08 AppArmor -->
+      <circle cx="795" cy="48" r="18" fill="#34d39922" stroke="#34d399" stroke-width="1"/>
+      <text x="795" y="52" text-anchor="middle" font-size="10" font-weight="700" fill="#34d399">08</text>
+      <text x="795" y="76" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">AppArmor</text>
+      <text x="795" y="88" text-anchor="middle" font-size="8" fill="#8892a4">libvirt profile</text>
+
+      <!-- 09 Network -->
+      <circle cx="901" cy="48" r="18" fill="#34d39922" stroke="#34d399" stroke-width="1"/>
+      <text x="901" y="52" text-anchor="middle" font-size="10" font-weight="700" fill="#34d399">09</text>
+      <text x="901" y="76" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">Network Setup</text>
+      <text x="901" y="88" text-anchor="middle" font-size="8" fill="#8892a4">virsh net config</text>
+
+      <!-- 10 virsh start -->
+      <circle cx="1007" cy="48" r="18" fill="#34d39944" stroke="#34d399" stroke-width="2"/>
+      <text x="1007" y="52" text-anchor="middle" font-size="10" font-weight="700" fill="#34d399">10</text>
+      <text x="1007" y="76" text-anchor="middle" font-size="9" font-weight="600" fill="#e2e8f0">virsh start</text>
+      <text x="1007" y="88" text-anchor="middle" font-size="8" fill="#8892a4">power on guest</text>
+    </svg>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 4 — API SURFACE
+  ══════════════════════════════════════════════ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>API Surface (FastAPI)</h2>
+    <p class="sub" style="margin-bottom:12px;">All routes except <code>/api/v1/auth/login</code> require <code>Authorization: Bearer &lt;JWT&gt;</code>.</p>
+    <table>
+      <tr><th>Router</th><th>Prefix</th><th>Key Endpoints</th></tr>
+      <tr><td><strong>auth_routes</strong></td><td><code>/api/v1/auth</code></td><td>POST /login — returns JWT bearer token</td></tr>
+      <tr><td><strong>routes — vCenter</strong></td><td><code>/api/v1/vcenters</code></td><td>CRUD + GET /triggerInventory + GET /getInventory + POST /batch-register-file</td></tr>
+      <tr><td><strong>routes — target</strong></td><td><code>/api/v1/migrationtarget</code></td><td>CRUD migration target (KVM / OpenStack)</td></tr>
+      <tr><td><strong>routes — MCP</strong></td><td><code>/mcp</code></td><td>POST /mcp — generate LLM plan; GET /mcp/api-keys</td></tr>
+      <tr><td><strong>routes — migrate</strong></td><td><code>/api/v1/migrate</code></td><td>POST — enqueue background migration task → returns task_id</td></tr>
+      <tr><td><strong>routes — Ollama</strong></td><td><code>/api/v1/ollama</code></td><td>GET /models — list locally-pulled Ollama models</td></tr>
+      <tr><td><strong>workflow_routes</strong></td><td><code>/api/v1/workflow</code></td><td>POST /start, /start-stream; POST /{id}/resume, /{id}/resume-stream; GET /{id}/state</td></tr>
+      <tr><td><strong>tasks router</strong></td><td><code>/api/v1</code></td><td>GET /tasks/executions (paged); GET /task/execution/{uuid}</td></tr>
+    </table>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 5 — FRONTEND PAGES
+  ══════════════════════════════════════════════ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>Frontend Pages</h2>
+    <table>
+      <tr><th>Page</th><th>Route</th><th>Purpose</th></tr>
+      <tr><td><strong>Login</strong></td><td><code>/login</code></td><td>JWT credential form; stores token in localStorage; auto-redirects to <code>/</code> if already authenticated</td></tr>
+      <tr><td><strong>Home</strong></td><td><code>/</code></td><td>Landing dashboard with feature overview and quick-start guide</td></tr>
+      <tr><td><strong>Register (vCenter)</strong></td><td><code>/register</code></td><td>Add VMware vCenter or ESXi source; single-form or bulk JSON import</td></tr>
+      <tr><td><strong>Inventory</strong></td><td><code>/inventory</code></td><td>Browse datacenter / cluster / host / VM tree fetched from vCenter; refresh button triggers background task</td></tr>
+      <tr><td><strong>Target Hypervisor</strong></td><td><code>/hypervisor</code></td><td>Register KVM (or OpenStack) migration target; SSH auth validated on save</td></tr>
+      <tr><td><strong>Migration</strong></td><td><code>/migration</code></td><td>3-step wizard: ① select source VMs → ② LLM migration plan → ③ execute migration with real-time progress</td></tr>
+      <tr><td><strong>AgenticWorkflow</strong></td><td><code>/agent-workflow</code></td><td>LangGraph SSE stream with per-node progress; human approval gate before migration executes</td></tr>
+      <tr><td><strong>TaskHistoryPanel</strong></td><td>global sidebar</td><td>Live-polling task history with progress percentage and parent/child task hierarchy</td></tr>
+    </table>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 6 — DATA MODEL & SECURITY
+  ══════════════════════════════════════════════ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>Data Model &amp; Security</h2>
+    <div class="grid-3" style="margin-top:8px;">
+      <div>
+        <h3>SQLite — vm_exit.db</h3>
+        <table>
+          <tr><th>Table</th><th>Key Columns</th></tr>
+          <tr><td><code>source_details</code></td><td>uuid, host, username, password (Fernet), type (vcenter/esxi), version, cluster_count, is_active</td></tr>
+          <tr><td><code>migration_target_details</code></td><td>uuid, host, username, password (Fernet), type (kvm/openstack), kvm_storage_pool, is_active</td></tr>
+          <tr><td><code>tasks</code></td><td>uuid, type, status, percentage, state, error_message, parent_task_id, config_uuid</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>File Store — backend/data/</h3>
+        <table>
+          <tr><th>File</th><th>Content</th></tr>
+          <tr><td><code>{uuid}.json</code></td><td>Full vCenter inventory tree with telemetry quickStats</td></tr>
+          <tr><td><code>{uuid}_plan.json</code></td><td>LLM migration plan with phase batches, telemetry rollups, rationale</td></tr>
+          <tr><td><code>langgraph_checkpoints.sqlite</code></td><td>LangGraph durable state per workflow thread_id</td></tr>
+          <tr><td><code>llm_api_keys.json</code></td><td>Opt-in stored provider API keys</td></tr>
+          <tr><td><code>vm_exit.log*</code></td><td>Rotating backend logs (10 MiB × 5 rotations)</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>Security</h3>
+        <table>
+          <tr><th>Mechanism</th><th>Detail</th></tr>
+          <tr><td>JWT (HS256)</td><td>24 h expiry; <code>JWT_SECRET_KEY</code> env; Bearer header on all API calls</td></tr>
+          <tr><td>Fernet encryption</td><td>vCenter &amp; KVM passwords encrypted at rest; <code>VCENTER_SECRET_KEY</code> env</td></tr>
+          <tr><td>RequireAuth</td><td>React wrapper redirects to /login on 401 response</td></tr>
+          <tr><td>CORS</td><td><code>allow_origins=["*"]</code> (dev default — restrict in production)</td></tr>
+          <tr><td>Path traversal guard</td><td><code>_file_under_build()</code> blocks <code>../</code> on static file serving</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 7 — LLM PLANNING
+  ══════════════════════════════════════════════ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>LLM Migration Planning</h2>
+    <div class="grid-2" style="margin-top:8px;">
+      <div>
+        <h3>Supported Providers</h3>
+        <table>
+          <tr><th>Provider</th><th>API Key</th><th>Notes</th></tr>
+          <tr><td>OpenAI</td><td>Yes (opt-in store)</td><td>GPT-4 / GPT-4o via <code>openai</code> SDK</td></tr>
+          <tr><td>Gemini</td><td>Yes (opt-in store)</td><td>gemini-1.5-pro via <code>google-generativeai</code></td></tr>
+          <tr><td>Claude</td><td>Yes (opt-in store)</td><td>claude-3-5 via <code>anthropic</code> SDK</td></tr>
+          <tr><td>DeepSeek</td><td>Yes (opt-in store)</td><td>deepseek-chat via OpenAI-compatible API</td></tr>
+          <tr><td>Ollama</td><td>No (local)</td><td>Any locally pulled model; configurable base URL &amp; model name</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>Plan Post-Processing Steps</h3>
+        <table>
+          <tr><th>Step</th><th>Purpose</th></tr>
+          <tr><td><code>_parse_llm_migration_json</code></td><td>Strip markdown fences, extract balanced JSON object</td></tr>
+          <tr><td><code>_enforce_plan_constraints</code></td><td>Force parallel strategy; pin target host/type from DB</td></tr>
+          <tr><td><code>_strip_duplicate_vms</code></td><td>Ensure each VM appears in exactly one phase</td></tr>
+          <tr><td><code>_ensure_all_vms_in_plan</code></td><td>Auto-append catch-all phase for any omitted VMs</td></tr>
+          <tr><td><code>_attach_batch_telemetry_rollups</code></td><td>Copy CPU/mem quickStats from inventory onto each phase</td></tr>
+          <tr><td><code>_enrich_group_rationales</code></td><td>Augment LLM rationale with inventory placement facts</td></tr>
+          <tr><td><code>_build_migration_phases_view</code></td><td>Consumer-friendly <code>migrationPhasesView</code> for UI</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 8 — TECH STACK
+  ══════════════════════════════════════════════ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>Technology Stack</h2>
+    <div class="grid-4" style="margin-top:12px;">
+      <div>
+        <h3>Backend</h3>
+        <div class="pills">
+          <span class="pill">FastAPI</span><span class="pill">SQLAlchemy</span><span class="pill">pyvmomi</span>
+          <span class="pill">paramiko</span><span class="pill">LangGraph</span><span class="pill">APScheduler</span>
+          <span class="pill">cryptography</span><span class="pill">PyJWT</span><span class="pill">uvicorn</span>
+        </div>
+      </div>
+      <div>
+        <h3>Frontend</h3>
+        <div class="pills">
+          <span class="pill">React 18</span><span class="pill">React Router 6</span><span class="pill">Tailwind CSS</span>
+          <span class="pill">Axios</span><span class="pill">react-toastify</span><span class="pill">Vite</span>
+        </div>
+      </div>
+      <div>
+        <h3>AI / LLM</h3>
+        <div class="pills">
+          <span class="pill">openai</span><span class="pill">google-generativeai</span><span class="pill">anthropic</span>
+          <span class="pill">LangGraph</span><span class="pill">Ollama (local)</span>
+        </div>
+      </div>
+      <div>
+        <h3>Infrastructure</h3>
+        <div class="pills">
+          <span class="pill">SQLite</span><span class="pill">Docker</span><span class="pill">virt-v2v</span>
+          <span class="pill">libvirt / virsh</span><span class="pill">SSH (paramiko)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════
+       SECTION 9 — DEPLOYMENT
+  ══════════════════════════════════════════════ -->
+  <div class="section" style="margin-bottom:32px;">
+    <h2>Deployment</h2>
+    <div class="grid-2" style="margin-top:8px;">
+      <div>
+        <h3>Development (Local)</h3>
+        <table>
+          <tr><th>Command</th><th>Action</th></tr>
+          <tr><td><code>.\\run.ps1 venv-create</code></td><td>Create .venv and pip install backend deps (Windows)</td></tr>
+          <tr><td><code>.\\run.ps1 run-backend</code></td><td>Start uvicorn on :8000 with auto-reload</td></tr>
+          <tr><td><code>make run-web</code></td><td>Start Vite dev server on :5173 (Unix/macOS)</td></tr>
+          <tr><td><code>make start</code></td><td>Run backend + frontend in parallel</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3>Production (Docker)</h3>
+        <table>
+          <tr><th>Aspect</th><th>Detail</th></tr>
+          <tr><td>Dockerfile</td><td>Multi-stage: build React → copy dist → uvicorn serve</td></tr>
+          <tr><td>docker-compose.yml</td><td>Single container; env vars injected</td></tr>
+          <tr><td>Static files</td><td>FastAPI serves <code>web/dist/*</code> — no Nginx needed</td></tr>
+          <tr><td>APScheduler</td><td>Enabled when <code>APP_ENV=production</code>; vCenter ping every 5 min</td></tr>
+          <tr><td>Persistence</td><td>Mount <code>/data</code> volume for SQLite + logs across restarts</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider" />
+  <p style="text-align:right;font-size:12px;color:#4a5568;">VM-Exit &mdash; Architecture Document &mdash; May 2026</p>
+
+</div>
+</body>
+</html>

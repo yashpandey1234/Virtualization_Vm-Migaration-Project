@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>vJailbreak — Complete Architecture + OpenStack + Local Setup</title>
+<style>
+:root{
+  --bg:#0a0d14;--surface:#111520;--surface2:#1a1f30;--border:#252c42;
+  --text:#e2e8f0;--sub:#7a85a0;--accent:#5b8dee;--orange:#f97316;
+  --green:#22d3a0;--warn:#f59e0b;--red:#f87171;--purple:#a78bfa;
+  --pink:#ec4899;--teal:#06b6d4;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:40px 24px}
+.page{max-width:1160px;margin:0 auto}
+
+h1{font-size:32px;font-weight:700;color:var(--text);margin-bottom:6px}
+h2{font-size:20px;font-weight:700;color:var(--text);margin-bottom:10px}
+h3{font-size:13px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px}
+p,.sub{font-size:14px;color:var(--sub)}
+
+.divider{border:none;border-top:1px solid var(--border);margin:36px 0}
+.header-tag{display:inline-block;background:#5b8dee18;border:1px solid #5b8dee44;color:var(--accent);font-size:11px;font-weight:600;padding:3px 10px;border-radius:4px;margin-bottom:10px;letter-spacing:.05em;text-transform:uppercase}
+
+/* STATS */
+.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:32px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:13px 14px}
+.stat-val{font-size:15px;font-weight:700;color:var(--accent)}
+.stat-val.o{color:var(--orange)}.stat-val.g{color:var(--green)}.stat-val.p{color:var(--purple)}.stat-val.t{color:var(--teal)}.stat-val.pk{color:var(--pink)}
+.stat-label{font-size:11px;color:var(--sub);margin-top:2px}
+
+/* CARDS */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px}
+.card-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px}
+.card-sub{font-size:12px;color:var(--sub);margin-bottom:8px}
+
+/* GRIDS */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+
+/* TABLE */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 12px;background:var(--surface2);color:var(--sub);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border)}
+td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface2)}
+code{font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:3px;color:var(--accent)}
+
+/* CALLOUT */
+.callout{background:var(--surface);border-left:3px solid var(--accent);border-radius:6px;padding:12px 16px;font-size:13px;color:var(--sub)}
+.callout.o{border-left-color:var(--orange)}.callout.g{border-left-color:var(--green)}.callout.p{border-left-color:var(--purple)}.callout.r{border-left-color:var(--red)}.callout.t{border-left-color:var(--teal)}
+
+/* PILLS */
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.pill{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 11px;font-size:12px;color:var(--sub)}
+.pill.b{border-color:var(--accent);color:var(--accent)}.pill.o{border-color:var(--orange);color:var(--orange)}.pill.g{border-color:var(--green);color:var(--green)}.pill.p{border-color:var(--purple);color:var(--purple)}.pill.r{border-color:var(--red);color:var(--red)}.pill.t{border-color:var(--teal);color:var(--teal)}
+
+/* STEP BOXES */
+.step-row{display:flex;align-items:flex-start;gap:14px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:8px}
+.step-num{min-width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0}
+.step-body h4{font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px}
+.step-body p{font-size:12px;color:var(--sub);margin:0}
+.step-body code{font-size:11px}
+
+/* BADGE */
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.badge-b{background:#5b8dee22;color:var(--accent);border:1px solid #5b8dee44}
+.badge-o{background:#f9731622;color:var(--orange);border:1px solid #f9731644}
+.badge-g{background:#22d3a022;color:var(--green);border:1px solid #22d3a044}
+.badge-r{background:#f8717122;color:var(--red);border:1px solid #f8717144}
+.badge-p{background:#a78bfa22;color:var(--purple);border:1px solid #a78bfa44}
+.badge-t{background:#06b6d422;color:var(--teal);border:1px solid #06b6d444}
+
+/* SECTION */
+section{margin-bottom:0}
+
+/* TABS */
+.tabs{display:flex;gap:2px;border-bottom:2px solid var(--border);margin-bottom:20px;flex-wrap:wrap}
+.tab{padding:8px 18px;font-size:13px;font-weight:600;color:var(--sub);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:4px 4px 0 0;transition:all .2s}
+.tab:hover{color:var(--text);background:var(--surface)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-content{display:none}.tab-content.active{display:block}
+
+/* LEGEND */
+.legend{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--sub)}
+.leg-line{width:28px;height:2px}
+
+/* FLOW ARROW */
+.flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0}
+.flow-box{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:12px;font-weight:600;color:var(--text)}
+.flow-box.o{border-color:var(--orange);color:var(--orange)}
+.flow-box.g{border-color:var(--green);color:var(--green)}
+.flow-box.b{border-color:var(--accent);color:var(--accent)}
+.flow-box.p{border-color:var(--purple);color:var(--purple)}
+.flow-arr{color:var(--sub);font-size:18px}
+
+svg text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+
+@media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ═══════════════════════════════════════════
+     HEADER
+════════════════════════════════════════════ -->
+<div style="margin-bottom:28px">
+  <div class="header-tag">VMware Exit Platform</div>
+  <h1>vJailbreak — Complete Architecture Guide</h1>
+  <p style="margin-top:8px;font-size:15px">Platform9 ka open-source tool jo VMware ESXi/vCenter se VMs ko OpenStack par migrate karta hai — Kubernetes-native, agentless, VDDK + virt-v2v powered. Iska local setup guide bhi complete included hai.</p>
+  <div style="margin-top:12px;font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;color:var(--sub)">
+    <strong style="color:var(--orange)">Tumhara Project Context:</strong> Tum ESXi 172.17.44.116 (source) se ubuntu24.04 VM ko OpenStack 172.17.44.39 (target) par migrate karna chahte ho. vJailbreak woh bridge hai jo ye karta hai — bina kisi agent ke, fully automated.
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat"><div class="stat-val">Go + K3s</div><div class="stat-label">Core engine language</div></div>
+  <div class="stat"><div class="stat-val o">VDDK</div><div class="stat-label">VMware disk access kit</div></div>
+  <div class="stat"><div class="stat-val g">virt-v2v</div><div class="stat-label">VMDK → QCOW2 converter</div></div>
+  <div class="stat"><div class="stat-val p">CBT</div><div class="stat-label">Change Block Tracking</div></div>
+  <div class="stat"><div class="stat-val t">govmomi</div><div class="stat-label">Go vSphere API client</div></div>
+  <div class="stat"><div class="stat-val pk">React+TS</div><div class="stat-label">Frontend dashboard</div></div>
+</div>
+
+<!-- NAV TABS -->
+<div class="tabs">
+  <div class="tab active" onclick="showTab('arch')">🏗️ Architecture</div>
+  <div class="tab" onclick="showTab('vddk')">🔑 VDDK Explained</div>
+  <div class="tab" onclick="showTab('cbt')">⚡ CBT Explained</div>
+  <div class="tab" onclick="showTab('pipeline')">🔄 Migration Pipeline</div>
+  <div class="tab" onclick="showTab('openstack')">☁️ OpenStack Deep Dive</div>
+  <div class="tab" onclick="showTab('crd')">📋 Kubernetes CRDs</div>
+  <div class="tab" onclick="showTab('local')">💻 Local Setup Guide</div>
+  <div class="tab" onclick="showTab('poc')">🚀 POC Steps</div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 1 — ARCHITECTURE
+════════════════════════════════════════════ -->
+<div id="tab-arch" class="tab-content active">
+
+  <h2>System Architecture — 4 Layers</h2>
+  <p class="sub" style="margin-bottom:16px">vJailbreak ek appliance VM hai jo OpenStack ke andar run karta hai. Wahan se wo VMware ki taraf "reach back" karta hai — VDDK se disk padhta hai, virt-v2v se convert karta hai, phir OpenStack par deploy karta hai.</p>
+
+  <!-- Main Architecture SVG -->
+  <svg viewBox="0 0 1100 560" width="100%" style="display:block;border:1px solid var(--border);border-radius:10px;background:#0a0d14;margin-bottom:20px">
+    <defs>
+      <marker id="ao" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#f97316"/></marker>
+      <marker id="ag" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#22d3a0"/></marker>
+      <marker id="ab" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#5b8dee"/></marker>
+      <marker id="ap" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#a78bfa"/></marker>
+      <marker id="aw" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#252c42"/></marker>
+    </defs>
+
+    <!-- Layer bands -->
+    <rect x="8" y="10" width="1084" height="105" rx="8" fill="#5b8dee08"/>
+    <rect x="8" y="130" width="1084" height="105" rx="8" fill="#f9731608"/>
+    <rect x="8" y="250" width="1084" height="105" rx="8" fill="#22d3a008"/>
+    <rect x="8" y="370" width="1084" height="105" rx="8" fill="#a78bfa08"/>
+    <rect x="8" y="475" width="1084" height="75" rx="8" fill="#111520"/>
+
+    <!-- Layer labels -->
+    <text x="1088" y="67"  text-anchor="end" font-size="11" fill="#5b8dee" opacity=".8">Layer 1 — React Frontend</text>
+    <text x="1088" y="188" text-anchor="end" font-size="11" fill="#f97316" opacity=".8">Layer 2 — vJailbreak Core (Go)</text>
+    <text x="1088" y="308" text-anchor="end" font-size="11" fill="#22d3a0" opacity=".8">Layer 3 — Connectors</text>
+    <text x="1088" y="428" text-anchor="end" font-size="11" fill="#a78bfa" opacity=".8">Layer 4 — External Systems</text>
+    <text x="1088" y="520" text-anchor="end" font-size="11" fill="#7a85a0" opacity=".8">Layer 5 — Storage / SQLite</text>
+
+    <!-- LAYER 1 — React -->
+    <rect x="20"  y="24" width="150" height="75" rx="7" fill="#5b8dee33" stroke="#5b8dee" stroke-width="1.5"/>
+    <text x="95"  y="55" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">React UI</text>
+    <text x="95"  y="72" text-anchor="middle" font-size="10" fill="#7a85a0">Dashboard + Forms</text>
+    <text x="95"  y="87" text-anchor="middle" font-size="9"  fill="#4a5568">TypeScript · Vite</text>
+
+    <rect x="185" y="24" width="160" height="75" rx="7" fill="#5b8dee1a" stroke="#252c42" stroke-width="1"/>
+    <text x="265" y="55" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Migration Wizard</text>
+    <text x="265" y="72" text-anchor="middle" font-size="10" fill="#7a85a0">VM select → plan → go</text>
+    <text x="265" y="87" text-anchor="middle" font-size="9"  fill="#4a5568">Source + Target form</text>
+
+    <rect x="360" y="24" width="160" height="75" rx="7" fill="#5b8dee1a" stroke="#252c42" stroke-width="1"/>
+    <text x="440" y="55" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Progress View</text>
+    <text x="440" y="72" text-anchor="middle" font-size="10" fill="#7a85a0">Live status polling</text>
+    <text x="440" y="87" text-anchor="middle" font-size="9"  fill="#4a5568">Agent scale controls</text>
+
+    <rect x="535" y="24" width="160" height="75" rx="7" fill="#5b8dee1a" stroke="#252c42" stroke-width="1"/>
+    <text x="615" y="55" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">VMware Config</text>
+    <text x="615" y="72" text-anchor="middle" font-size="10" fill="#7a85a0">Register ESXi/vCenter</text>
+    <text x="615" y="87" text-anchor="middle" font-size="9"  fill="#4a5568">Credential entry</text>
+
+    <rect x="710" y="24" width="160" height="75" rx="7" fill="#5b8dee1a" stroke="#252c42" stroke-width="1"/>
+    <text x="790" y="55" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">OpenStack Config</text>
+    <text x="790" y="72" text-anchor="middle" font-size="10" fill="#7a85a0">Register OS target</text>
+    <text x="790" y="87" text-anchor="middle" font-size="9"  fill="#4a5568">Keystone URL + creds</text>
+
+    <!-- LAYER 2 — vJailbreak Core -->
+    <rect x="20"  y="144" width="170" height="75" rx="7" fill="#f9731633" stroke="#f97316" stroke-width="1.5"/>
+    <text x="105" y="175" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Migration Controller</text>
+    <text x="105" y="192" text-anchor="middle" font-size="10" fill="#7a85a0">Go Kubernetes Operator</text>
+    <text x="105" y="207" text-anchor="middle" font-size="9"  fill="#4a5568">Watches CRDs → spawns pods</text>
+
+    <rect x="205" y="144" width="160" height="75" rx="7" fill="#f9731622" stroke="#252c42" stroke-width="1"/>
+    <text x="285" y="175" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">v2v Helper</text>
+    <text x="285" y="192" text-anchor="middle" font-size="10" fill="#7a85a0">virt-v2v wrapper (Go)</text>
+    <text x="285" y="207" text-anchor="middle" font-size="9"  fill="#4a5568">VMDK → QCOW2 core</text>
+
+    <rect x="380" y="144" width="160" height="75" rx="7" fill="#f9731622" stroke="#252c42" stroke-width="1"/>
+    <text x="460" y="175" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">CRD Manager</text>
+    <text x="460" y="192" text-anchor="middle" font-size="10" fill="#7a85a0">Custom K8s objects</text>
+    <text x="460" y="207" text-anchor="middle" font-size="9"  fill="#4a5568">MigrationPlan · VMwareCreds</text>
+
+    <rect x="555" y="144" width="160" height="75" rx="7" fill="#f9731622" stroke="#252c42" stroke-width="1"/>
+    <text x="635" y="175" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Vpwned (Power Mgmt)</text>
+    <text x="635" y="192" text-anchor="middle" font-size="10" fill="#7a85a0">VM power on/off</text>
+    <text x="635" y="207" text-anchor="middle" font-size="9"  fill="#4a5568">via vSphere API</text>
+
+    <rect x="730" y="144" width="160" height="75" rx="7" fill="#f9731622" stroke="#252c42" stroke-width="1"/>
+    <text x="810" y="175" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Progress Tracker</text>
+    <text x="810" y="192" text-anchor="middle" font-size="10" fill="#7a85a0">Migration status</text>
+    <text x="810" y="207" text-anchor="middle" font-size="9"  fill="#4a5568">Poll every 120s</text>
+
+    <!-- LAYER 3 — Connectors -->
+    <rect x="20"  y="264" width="195" height="75" rx="7" fill="#22d3a022" stroke="#22d3a0" stroke-width="1.5"/>
+    <text x="117" y="295" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">VMwareConnector</text>
+    <text x="117" y="312" text-anchor="middle" font-size="10" fill="#7a85a0">govmomi · vSphere API</text>
+    <text x="117" y="327" text-anchor="middle" font-size="9"  fill="#4a5568">Inventory · Snapshot · Power</text>
+
+    <rect x="230" y="264" width="195" height="75" rx="7" fill="#22d3a022" stroke="#22d3a0" stroke-width="1.5"/>
+    <text x="327" y="295" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">OpenStackConnector</text>
+    <text x="327" y="312" text-anchor="middle" font-size="10" fill="#7a85a0">openstack-go-sdk</text>
+    <text x="327" y="327" text-anchor="middle" font-size="9"  fill="#4a5568">Glance · Nova · Neutron · Keystone</text>
+
+    <rect x="440" y="264" width="195" height="75" rx="7" fill="#22d3a022" stroke="#252c42" stroke-width="1"/>
+    <text x="537" y="295" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">DiskConverter</text>
+    <text x="537" y="312" text-anchor="middle" font-size="10" fill="#7a85a0">virt-v2v · nbdkit · VDDK</text>
+    <text x="537" y="327" text-anchor="middle" font-size="9"  fill="#4a5568">Format + driver conversion</text>
+
+    <rect x="650" y="264" width="195" height="75" rx="7" fill="#22d3a022" stroke="#252c42" stroke-width="1"/>
+    <text x="747" y="295" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">NetworkMapper</text>
+    <text x="747" y="312" text-anchor="middle" font-size="10" fill="#7a85a0">VMware portgroup → OS network</text>
+    <text x="747" y="327" text-anchor="middle" font-size="9"  fill="#4a5568">VLAN/segment mapping</text>
+
+    <!-- LAYER 4 — External Systems -->
+    <rect x="20"  y="384" width="170" height="75" rx="7" fill="#1a1f30" stroke="#f97316" stroke-width="1.5"/>
+    <text x="105" y="415" text-anchor="middle" font-size="12" font-weight="600" fill="#f97316">VMware ESXi</text>
+    <text x="105" y="432" text-anchor="middle" font-size="10" fill="#7a85a0">172.17.44.116</text>
+    <text x="105" y="447" text-anchor="middle" font-size="9"  fill="#4a5568">Source VMs live here</text>
+
+    <rect x="205" y="384" width="170" height="75" rx="7" fill="#1a1f30" stroke="#22d3a0" stroke-width="1.5"/>
+    <text x="290" y="415" text-anchor="middle" font-size="12" font-weight="600" fill="#22d3a0">OpenStack</text>
+    <text x="290" y="432" text-anchor="middle" font-size="10" fill="#7a85a0">172.17.44.39</text>
+    <text x="290" y="447" text-anchor="middle" font-size="9"  fill="#4a5568">Target — Nova, Glance, Neutron</text>
+
+    <rect x="390" y="384" width="170" height="75" rx="7" fill="#1a1f30" stroke="#a78bfa" stroke-width="1.5"/>
+    <text x="475" y="415" text-anchor="middle" font-size="12" font-weight="600" fill="#a78bfa">VDDK Library</text>
+    <text x="475" y="432" text-anchor="middle" font-size="10" fill="#7a85a0">VMware closed-source SDK</text>
+    <text x="475" y="447" text-anchor="middle" font-size="9"  fill="#4a5568">/home/ubuntu/vmware-vix-disklib</text>
+
+    <rect x="575" y="384" width="170" height="75" rx="7" fill="#1a1f30" stroke="#06b6d4" stroke-width="1.5"/>
+    <text x="660" y="415" text-anchor="middle" font-size="12" font-weight="600" fill="#06b6d4">K3s (Kubernetes)</text>
+    <text x="660" y="432" text-anchor="middle" font-size="10" fill="#7a85a0">Lightweight K8s</text>
+    <text x="660" y="447" text-anchor="middle" font-size="9"  fill="#4a5568">Runs inside vJailbreak VM</text>
+
+    <!-- LAYER 5 — Storage -->
+    <rect x="20"  y="489" width="185" height="50" rx="7" fill="#111520" stroke="#252c42" stroke-width="1"/>
+    <text x="112" y="510" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">SQLite DB</text>
+    <text x="112" y="526" text-anchor="middle" font-size="10" fill="#7a85a0">CRD state · migration log</text>
+
+    <rect x="215" y="489" width="185" height="50" rx="7" fill="#111520" stroke="#252c42" stroke-width="1"/>
+    <text x="307" y="510" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">Kubernetes ETCD</text>
+    <text x="307" y="526" text-anchor="middle" font-size="10" fill="#7a85a0">K3s cluster state</text>
+
+    <rect x="410" y="489" width="185" height="50" rx="7" fill="#111520" stroke="#252c42" stroke-width="1"/>
+    <text x="502" y="510" text-anchor="middle" font-size="12" font-weight="600" fill="#e2e8f0">JSON Artifacts</text>
+    <text x="502" y="526" text-anchor="middle" font-size="10" fill="#7a85a0">inventory · plan · health</text>
+
+    <!-- ARROWS -->
+    <!-- React → Core -->
+    <path d="M265,99 C265,120 105,120 105,144" fill="none" stroke="#5b8dee" stroke-width="1.5" marker-end="url(#ab)"/>
+    <path d="M790,99 C790,120 635,120 635,144" fill="none" stroke="#252c42" stroke-width="1"   marker-end="url(#aw)"/>
+    <!-- Core → Connectors -->
+    <path d="M105,219 C105,240 117,240 117,264" fill="none" stroke="#f97316" stroke-width="1.5" marker-end="url(#ao)"/>
+    <path d="M285,219 C285,240 537,240 537,264" fill="none" stroke="#f97316" stroke-width="1.5" marker-end="url(#ao)"/>
+    <path d="M460,219 C460,240 327,240 327,264" fill="none" stroke="#252c42" stroke-width="1"   marker-end="url(#aw)"/>
+    <!-- Connectors → External -->
+    <path d="M117,339 C117,360 105,360 105,384" fill="none" stroke="#22d3a0" stroke-width="1.5" marker-end="url(#ag)"/>
+    <path d="M327,339 C327,360 290,360 290,384" fill="none" stroke="#22d3a0" stroke-width="1.5" marker-end="url(#ag)"/>
+    <path d="M537,339 C537,360 475,360 475,384" fill="none" stroke="#22d3a0" stroke-width="1.5" marker-end="url(#ag)"/>
+    <!-- External → Storage -->
+    <path d="M105,459 C105,472 112,472 112,489" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#aw)"/>
+    <path d="M660,459 C660,472 307,472 307,489" fill="none" stroke="#252c42" stroke-width="1" marker-end="url(#aw)"/>
+  </svg>
+
+  <div class="legend">
+    <div class="legend-item"><div class="leg-line" style="background:#5b8dee;height:2px"></div>UI → Core flow</div>
+    <div class="legend-item"><div class="leg-line" style="background:#f97316;height:2px"></div>Core → Migration path</div>
+    <div class="legend-item"><div class="leg-line" style="background:#22d3a0;height:2px"></div>Connector → External</div>
+    <div class="legend-item"><div class="leg-line" style="background:#252c42;height:2px"></div>Internal calls</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Repo Structure -->
+  <h2 style="margin-bottom:14px">vJailbreak Repo Structure — File by File</h2>
+  <div class="grid-2">
+    <div>
+      <table>
+        <tr><th>Folder/File</th><th>Language</th><th>Kya Karta Hai</th></tr>
+        <tr><td><code>k8s/migration/</code></td><td>Go</td><td>Kubernetes controller — CRDs watch karta hai, migration pods spawn karta hai</td></tr>
+        <tr><td><code>v2v-helper/</code></td><td>Go</td><td>virt-v2v ka wrapper — VMDK → QCOW2 conversion ka actual code</td></tr>
+        <tr><td><code>pkg/vpwned/</code></td><td>Go</td><td>VM power management — ESXi par VM ko on/off karta hai</td></tr>
+        <tr><td><code>pkg/common/</code></td><td>Go</td><td>Shared utilities — logging, error handling</td></tr>
+        <tr><td><code>ui/</code></td><td>React+TS</td><td>Frontend dashboard — migration forms, progress view</td></tr>
+        <tr><td><code>deploy/</code></td><td>YAML</td><td>Kubernetes manifests — sab deploy karne ke liye</td></tr>
+        <tr><td><code>CLAUDE.md</code></td><td>Markdown</td><td>AI agent ke liye project instructions (PADHO!)</td></tr>
+        <tr><td><code>AGENTS.md</code></td><td>Markdown</td><td>Multi-agent architecture documentation</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="callout o" style="margin-bottom:12px">
+        <strong>Most Important Folder: v2v-helper/</strong><br/>
+        Yahan actual disk conversion hoti hai. <code>virt-v2v</code> command yahan se call hoti hai. VMDK format ke VMware disks ko QCOW2 format mein convert karta hai — plus VMware drivers hata ke KVM/VirtIO drivers inject karta hai.
+      </div>
+      <div class="callout t">
+        <strong>K8s Workflow:</strong> Jab tum UI mein MigrationPlan create karte ho — K8s mein ek CRD object banta hai. Migration Controller us CRD ko dekh ke ek migration pod spawn karta hai. Woh pod v2v-helper run karta hai. Status CRD mein update hota rehta hai — UI poll karta hai.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 2 — VDDK
+════════════════════════════════════════════ -->
+<div id="tab-vddk" class="tab-content">
+
+  <h2>VDDK — Virtual Disk Development Kit</h2>
+  <p class="sub" style="margin-bottom:20px">VMware ka official closed-source library jo VM disks ko directly (block level pe) padhne ki permission deta hai — bina OS ke andar jaaye. Migration ka pehla requirement.</p>
+
+  <div class="grid-2" style="margin-bottom:24px">
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">🔑 VDDK Kya Hai — Simple Analogy</div>
+        <div class="card-sub" style="margin-bottom:10px">Sochlo VM ek sealed box hai. VMDK uski hard drive hai jo box ke andar band hai.</div>
+        <div class="callout" style="font-size:13px">
+          <strong>Bina VDDK:</strong> Box ke bahar se knock karo — kuch nahi milega. VM OS login karna padega.<br><br>
+          <strong>VDDK ke saath:</strong> VMware tumhe ek special chabi deta hai — seedha hard drive ke blocks padh sakte ho. OS ka koi role nahi.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">📦 VDDK Download + Setup</div>
+        <div class="card-sub">VMware developer portal se download karna padta hai (free registration)</div>
+        <div class="step-row" style="margin-top:10px">
+          <div class="step-num" style="background:#f97316">1</div>
+          <div class="step-body"><h4>Download VDDK</h4><p>developer.vmware.com → "Virtual Disk Development Kit" → latest version download</p></div>
+        </div>
+        <div class="step-row">
+          <div class="step-num" style="background:#f97316">2</div>
+          <div class="step-body"><h4>Extract tar.gz</h4><p><code>tar -xzf VMware-vix-disklib-*.tar.gz</code></p></div>
+        </div>
+        <div class="step-row">
+          <div class="step-num" style="background:#22d3a0">3</div>
+          <div class="step-body"><h4>Place in correct path</h4><p><code>cp -r vmware-vix-disklib-distrib/ /home/ubuntu/</code><br>vJailbreak is exact path pe dhundta hai</p></div>
+        </div>
+        <div class="step-row">
+          <div class="step-num" style="background:#22d3a0">4</div>
+          <div class="step-body"><h4>Verify</h4><p><code>ls /home/ubuntu/vmware-vix-disklib-distrib/lib64/</code> → .so files dikhne chahiye</p></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">🔧 VDDK Technical Working</div>
+        <div class="card-sub">VDDK internally NBD (Network Block Device) protocol use karta hai ESXi se disk blocks padhne ke liye</div>
+        <svg viewBox="0 0 480 280" width="100%" style="display:block;background:#0a0d14;border-radius:8px;border:1px solid var(--border)">
+          <rect x="10" y="20" width="130" height="60" rx="6" fill="#f9731622" stroke="#f97316"/>
+          <text x="75" y="48" text-anchor="middle" font-size="11" fill="#f97316" font-weight="600">vJailbreak VM</text>
+          <text x="75" y="65" text-anchor="middle" font-size="9"  fill="#7a85a0">v2v-helper process</text>
+
+          <rect x="10" y="110" width="130" height="60" rx="6" fill="#a78bfa22" stroke="#a78bfa"/>
+          <text x="75" y="138" text-anchor="middle" font-size="11" fill="#a78bfa" font-weight="600">VDDK Library</text>
+          <text x="75" y="155" text-anchor="middle" font-size="9"  fill="#7a85a0">libvixDiskLib.so</text>
+
+          <rect x="10" y="200" width="130" height="60" rx="6" fill="#06b6d422" stroke="#06b6d4"/>
+          <text x="75" y="228" text-anchor="middle" font-size="11" fill="#06b6d4" font-weight="600">nbdkit plugin</text>
+          <text x="75" y="245" text-anchor="middle" font-size="9"  fill="#7a85a0">Network Block Device</text>
+
+          <rect x="340" y="110" width="130" height="60" rx="6" fill="#f9731622" stroke="#f97316"/>
+          <text x="405" y="138" text-anchor="middle" font-size="11" fill="#f97316" font-weight="600">ESXi Host</text>
+          <text x="405" y="155" text-anchor="middle" font-size="9"  fill="#7a85a0">172.17.44.116</text>
+
+          <rect x="340" y="200" width="130" height="60" rx="6" fill="#f9731622" stroke="#f97316"/>
+          <text x="405" y="228" text-anchor="middle" font-size="11" fill="#f97316" font-weight="600">VMDK File</text>
+          <text x="405" y="245" text-anchor="middle" font-size="9"  fill="#7a85a0">ubuntu24.vmdk</text>
+
+          <!-- Arrows -->
+          <line x1="75" y1="80" x2="75" y2="110" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ap)"/>
+          <line x1="75" y1="170" x2="75" y2="200" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#ab)"/>
+          <path d="M140,230 C240,230 240,140 340,140" fill="none" stroke="#22d3a0" stroke-width="1.5" marker-end="url(#ag)"/>
+          <path d="M340,230 C240,230 240,65 140,65" fill="none" stroke="#f97316" stroke-width="1.5" marker-end="url(#ao)"/>
+          <text x="240" y="196" text-anchor="middle" font-size="9" fill="#22d3a0">NBD request</text>
+          <text x="240" y="95" text-anchor="middle" font-size="9" fill="#f97316">disk blocks data</text>
+          <line x1="405" y1="170" x2="405" y2="200" stroke="#f97316" stroke-width="1.5" marker-end="url(#ao)"/>
+        </svg>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⚠️ Without VDDK vs With VDDK</div>
+        <table style="margin-top:8px">
+          <tr><th>Scenario</th><th>Without VDDK</th><th>With VDDK</th></tr>
+          <tr><td>VM chal rahi ho</td><td class="pill r">Disk lock — nahi padh sakte</td><td class="pill g">CBT se changed blocks padh sakte hain ✅</td></tr>
+          <tr><td>VM band ho</td><td>Manual disk copy — slow</td><td>Direct VMDK read — fast ✅</td></tr>
+          <tr><td>Windows VM</td><td>Driver issue — boot fail</td><td>virt-v2v + VDDK — auto fix ✅</td></tr>
+          <tr><td>Speed</td><td>SSH-based — very slow</td><td>Block level — 10x faster ✅</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 3 — CBT
+════════════════════════════════════════════ -->
+<div id="tab-cbt" class="tab-content">
+
+  <h2>CBT — Change Block Tracking</h2>
+  <p class="sub" style="margin-bottom:20px">VMware ESXi ka built-in feature jo track karta hai — VM disk pe exactly kaunse 512-byte blocks change hue. Hot Migration (live, no downtime) ke liye CBT zaroori hai.</p>
+
+  <div class="grid-2" style="margin-bottom:24px">
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">📊 CBT — Simple Analogy</div>
+        <div class="card-sub" style="margin-bottom:10px">Sochlo VM ki 500 GB hard drive ek 500 page ki kitaab hai.</div>
+        <div class="callout g">
+          <strong>Without CBT (Cold Migration):</strong><br>
+          Poori kitaab photocopy karni padegi — 500 pages = 500 GB data transfer. VM band karni padegi.<br><br>
+          <strong>With CBT (Hot Migration):</strong><br>
+          CBT batata hai — "sirf page 23, 45, 67 change hue." Sirf woh 3 pages copy karo. <strong>497 pages ka data bachega!</strong>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🔢 Real Numbers — CBT Impact</div>
+        <table>
+          <tr><th>VM Disk</th><th>Cold Migration</th><th>Hot (CBT) Migration</th></tr>
+          <tr><td>500 GB</td><td>500 GB transfer</td><td class="pill g">5-15 GB transfer ✅</td></tr>
+          <tr><td>Downtime</td><td>4-6 hours (VM OFF)</td><td class="pill g">5-10 min cutover ✅</td></tr>
+          <tr><td>Production risk</td><td>High — long outage</td><td class="pill g">Minimal ✅</td></tr>
+          <tr><td>VM state during</td><td>Powered OFF</td><td class="pill g">Running (live) ✅</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-title">⏱️ Hot Migration Timeline with CBT</div>
+        <svg viewBox="0 0 500 280" width="100%" style="display:block;background:#0a0d14;border-radius:8px;border:1px solid var(--border)">
+          <!-- Timeline bar -->
+          <line x1="30" y1="140" x2="470" y2="140" stroke="#252c42" stroke-width="2"/>
+
+          <!-- Phase 1: Initial copy -->
+          <rect x="30" y="100" width="160" height="50" rx="6" fill="#f9731622" stroke="#f97316"/>
+          <text x="110" y="122" text-anchor="middle" font-size="11" fill="#f97316" font-weight="600">Phase 1: Initial Copy</text>
+          <text x="110" y="138" text-anchor="middle" font-size="9"  fill="#7a85a0">Full disk — 500 GB</text>
+          <text x="110" y="165" text-anchor="middle" font-size="9"  fill="#7a85a0">4-5 hours</text>
+
+          <!-- Phase 2: CBT Sync -->
+          <rect x="200" y="100" width="100" height="50" rx="6" fill="#5b8dee22" stroke="#5b8dee"/>
+          <text x="250" y="122" text-anchor="middle" font-size="10" fill="#5b8dee" font-weight="600">CBT Sync 1</text>
+          <text x="250" y="138" text-anchor="middle" font-size="9"  fill="#7a85a0">Changed blocks</text>
+          <text x="250" y="165" text-anchor="middle" font-size="9"  fill="#7a85a0">15 min</text>
+
+          <!-- Phase 3: CBT Sync 2 -->
+          <rect x="310" y="100" width="80" height="50" rx="6" fill="#5b8dee22" stroke="#5b8dee"/>
+          <text x="350" y="122" text-anchor="middle" font-size="10" fill="#5b8dee" font-weight="600">CBT Sync 2</text>
+          <text x="350" y="138" text-anchor="middle" font-size="9"  fill="#7a85a0">Delta only</text>
+          <text x="350" y="165" text-anchor="middle" font-size="9"  fill="#7a85a0">5 min</text>
+
+          <!-- Phase 4: Cutover -->
+          <rect x="400" y="90" width="70" height="70" rx="6" fill="#22d3a022" stroke="#22d3a0"/>
+          <text x="435" y="118" text-anchor="middle" font-size="10" fill="#22d3a0" font-weight="600">Cutover</text>
+          <text x="435" y="134" text-anchor="middle" font-size="9"  fill="#7a85a0">VM OFF</text>
+          <text x="435" y="150" text-anchor="middle" font-size="9"  fill="#22d3a0">2-3 min</text>
+          <text x="435" y="175" text-anchor="middle" font-size="9"  fill="#22d3a0">↑ min downtime</text>
+
+          <!-- VM running label -->
+          <rect x="30" y="40" width="360" height="30" rx="4" fill="#22d3a010" stroke="#22d3a0" stroke-width="1" stroke-dasharray="4 3"/>
+          <text x="210" y="60" text-anchor="middle" font-size="10" fill="#22d3a0">VM IS LIVE / RUNNING during all these phases ✅</text>
+
+          <!-- Downtime label -->
+          <rect x="400" y="40" width="70" height="30" rx="4" fill="#f8717122" stroke="#f87171" stroke-width="1"/>
+          <text x="435" y="60" text-anchor="middle" font-size="10" fill="#f87171">2-3 min ⚡</text>
+          <text x="435" y="230" text-anchor="middle" font-size="9" fill="#7a85a0">only downtime</text>
+        </svg>
+      </div>
+
+      <div class="callout g" style="margin-top:16px">
+        <strong>CBT Enable kaise kare on ESXi:</strong><br>
+        1. VM Settings → Options → General → Configuration Parameters<br>
+        2. Add: <code>ctkEnabled = TRUE</code><br>
+        3. Add: <code>scsi0:0.ctkEnabled = TRUE</code><br>
+        4. VM reboot → CBT active<br><br>
+        <strong>vJailbreak automatically CBT enable karta hai</strong> jab tum MigrationPlan mein "Hot Migration" select karte ho.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 4 — MIGRATION PIPELINE
+════════════════════════════════════════════ -->
+<div id="tab-pipeline" class="tab-content">
+
+  <h2>Migration Pipeline — Step by Step</h2>
+  <p class="sub" style="margin-bottom:20px">vJailbreak ka actual migration exactly yahan se start hota hai aur yahan khatam hota hai. Har step mein kaun sa tool kya karta hai — fully explained.</p>
+
+  <!-- Pipeline SVG -->
+  <svg viewBox="0 0 1100 120" width="100%" style="display:block;background:#0a0d14;border-radius:10px;border:1px solid var(--border);margin-bottom:24px">
+    <defs>
+      <marker id="pm" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#f97316"/></marker>
+      <marker id="gm" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#22d3a0"/></marker>
+    </defs>
+    <!-- Steps -->
+    <rect x="10"  y="35" width="115" height="50" rx="6" fill="#5b8dee22" stroke="#5b8dee"/>
+    <text x="67"  y="57" text-anchor="middle" font-size="10" font-weight="600" fill="#5b8dee">01. Register</text>
+    <text x="67"  y="72" text-anchor="middle" font-size="9"  fill="#7a85a0">ESXi creds UI</text>
+
+    <line x1="125" y1="60" x2="145" y2="60" stroke="#f97316" stroke-width="1.5" marker-end="url(#pm)"/>
+
+    <rect x="145" y="35" width="115" height="50" rx="6" fill="#f9731622" stroke="#f97316"/>
+    <text x="202" y="57" text-anchor="middle" font-size="10" font-weight="600" fill="#f97316">02. Discover</text>
+    <text x="202" y="72" text-anchor="middle" font-size="9"  fill="#7a85a0">govmomi → VM list</text>
+
+    <line x1="260" y1="60" x2="280" y2="60" stroke="#f97316" stroke-width="1.5" marker-end="url(#pm)"/>
+
+    <rect x="280" y="35" width="115" height="50" rx="6" fill="#f9731622" stroke="#f97316"/>
+    <text x="337" y="57" text-anchor="middle" font-size="10" font-weight="600" fill="#f97316">03. OS Target</text>
+    <text x="337" y="72" text-anchor="middle" font-size="9"  fill="#7a85a0">OpenStack creds</text>
+
+    <line x1="395" y1="60" x2="415" y2="60" stroke="#f97316" stroke-width="1.5" marker-end="url(#pm)"/>
+
+    <rect x="415" y="35" width="115" height="50" rx="6" fill="#f9731633" stroke="#f97316"/>
+    <text x="472" y="57" text-anchor="middle" font-size="10" font-weight="600" fill="#f97316">04. Plan</text>
+    <text x="472" y="72" text-anchor="middle" font-size="9"  fill="#7a85a0">MigrationPlan CRD</text>
+
+    <line x1="530" y1="60" x2="550" y2="60" stroke="#f97316" stroke-width="1.5" marker-end="url(#pm)"/>
+
+    <rect x="550" y="35" width="115" height="50" rx="6" fill="#f8717122" stroke="#f87171"/>
+    <text x="607" y="57" text-anchor="middle" font-size="10" font-weight="600" fill="#f87171">05. Power OFF</text>
+    <text x="607" y="72" text-anchor="middle" font-size="9"  fill="#7a85a0">vpwned → ESXi API</text>
+
+    <line x1="665" y1="60" x2="685" y2="60" stroke="#f97316" stroke-width="1.5" marker-end="url(#pm)"/>
+
+    <rect x="685" y="25" width="115" height="70" rx="6" fill="#a78bfa33" stroke="#a78bfa"/>
+    <text x="742" y="50" text-anchor="middle" font-size="10" font-weight="700" fill="#a78bfa">06. VDDK Copy</text>
+    <text x="742" y="65" text-anchor="middle" font-size="9"  fill="#7a85a0">VMDK blocks read</text>
+    <text x="742" y="80" text-anchor="middle" font-size="9"  fill="#a78bfa">⭐ CORE STEP</text>
+
+    <line x1="800" y1="60" x2="820" y2="60" stroke="#22d3a0" stroke-width="1.5" marker-end="url(#gm)"/>
+
+    <rect x="820" y="25" width="115" height="70" rx="6" fill="#22d3a033" stroke="#22d3a0"/>
+    <text x="877" y="50" text-anchor="middle" font-size="10" font-weight="700" fill="#22d3a0">07. virt-v2v</text>
+    <text x="877" y="65" text-anchor="middle" font-size="9"  fill="#7a85a0">VMDK → QCOW2</text>
+    <text x="877" y="80" text-anchor="middle" font-size="9"  fill="#22d3a0">+ driver inject</text>
+
+    <line x1="935" y1="60" x2="955" y2="60" stroke="#22d3a0" stroke-width="1.5" marker-end="url(#gm)"/>
+
+    <rect x="955" y="35" width="135" height="50" rx="6" fill="#22d3a022" stroke="#22d3a0"/>
+    <text x="1022" y="57" text-anchor="middle" font-size="10" font-weight="600" fill="#22d3a0">08. Deploy + ON</text>
+    <text x="1022" y="72" text-anchor="middle" font-size="9"  fill="#7a85a0">Glance → Nova → Neutron</text>
+  </svg>
+
+  <!-- Detailed step cards -->
+  <div style="display:flex;flex-direction:column;gap:10px">
+
+    <div class="step-row">
+      <div class="step-num" style="background:#5b8dee">01</div>
+      <div class="step-body">
+        <h4>Register VMware Credentials</h4>
+        <p>vJailbreak UI mein jao → "VMware Config" → ESXi IP (<code>172.17.44.116</code>) + username (<code>root</code>) + password enter karo → Submit. Internally ek <code>VMwareCreds</code> CRD banta hai K8s mein.</p>
+        <div class="pills" style="margin-top:6px"><span class="pill b">UI Action</span><span class="pill b">VMwareCreds CRD created</span></div>
+      </div>
+    </div>
+
+    <div class="step-row">
+      <div class="step-num" style="background:#f97316">02</div>
+      <div class="step-body">
+        <h4>VM Inventory Discovery</h4>
+        <p>VMwareCreds CRD create hote hi — Migration Controller automatically ESXi se connect karta hai (govmomi library se). Saari VMs, unka CPU, RAM, disk size, power state — sab fetch hota hai. UI mein VM list dikhti hai.</p>
+        <div class="pills" style="margin-top:6px"><span class="pill o">govmomi</span><span class="pill o">vSphere API</span><span class="pill o">Automatic on CRD creation</span></div>
+      </div>
+    </div>
+
+    <div class="step-row">
+      <div class="step-num" style="background:#f97316">03</div>
+      <div class="step-body">
+        <h4>Register OpenStack Target</h4>
+        <p>UI mein "OpenStack Config" → Keystone URL (<code>http://172.17.44.39/identity/v3</code>), admin username, password enter karo. vJailbreak verify karta hai — Nova, Glance, Neutron sab accessible hain ya nahi.</p>
+        <div class="pills" style="margin-top:6px"><span class="pill g">Keystone auth</span><span class="pill g">OpenStackCreds CRD</span></div>
+      </div>
+    </div>
+
+    <div class="step-row">
+      <div class="step-num" style="background:#f97316">04</div>
+      <div class="step-body">
+        <h4>Create MigrationPlan</h4>
+        <p>UI mein source VM select karo (<code>ubuntu24.04</code>), target flavor select karo (CPU/RAM), network mapping karo (VMware portgroup → OpenStack network). Submit karo → <code>MigrationPlan</code> CRD banta hai.</p>
+        <div class="pills" style="margin-top:6px"><span class="pill p">MigrationPlan CRD</span><span class="pill p">Flavor mapping</span><span class="pill p">Network mapping</span></div>
+      </div>
+    </div>
+
+    <div class="step-row" style="border-color:#f87171">
+      <div class="step-num" style="background:#f87171">05</div>
+      <div class="step-body">
+        <h4>Power Off Source VM ⚠️</h4>
+        <p>Cold migration ke liye — vJailbreak ESXi API se VM power off karta hai (<code>vpwned</code> package). Ye zaroori hai taaki disk consistent state mein ho during copy. Hot migration mein ye step skip hota hai (CBT use hota hai).</p>
+        <div class="pills" style="margin-top:6px"><span class="pill r">COLD only</span><span class="pill o">vpwned package</span><span class="pill r">Downtime starts here</span></div>
+      </div>
+    </div>
+
+    <div class="step-row" style="border-color:#a78bfa">
+      <div class="step-num" style="background:#a78bfa">06</div>
+      <div class="step-body">
+        <h4>VMDK Block Copy (VDDK + nbdkit) ⭐ CORE</h4>
+        <p>v2v-helper process shuru hota hai. VDDK library use karke ESXi par VMDK file ke blocks network se read karte hain. nbdkit ek local block device banata hai jo virt-v2v ko lagta hai disk hai. Data stream shuru — 500 GB VM ke liye ghanton lag sakte hain.</p>
+        <div class="pills" style="margin-top:6px"><span class="pill p">VDDK library</span><span class="pill p">nbdkit</span><span class="pill p">Network block copy</span><span class="pill p">CBT (hot only)</span></div>
+      </div>
+    </div>
+
+    <div class="step-row" style="border-color:#22d3a0">
+      <div class="step-num" style="background:#22d3a0">07</div>
+      <div class="step-body">
+        <h4>virt-v2v Conversion — Format + Driver</h4>
+        <p>virt-v2v tool run hota hai — 2 kaam karta hai simultaneously: (1) VMDK format → QCOW2 format convert karta hai, (2) VM ke andar se VMware-specific drivers (vmxnet3, pvscsi) hata ke KVM/VirtIO drivers inject karta hai. Bina ye step ke VM OpenStack par boot nahi hogi.</p>
+        <div class="pills" style="margin-top:6px"><span class="pill g">virt-v2v</span><span class="pill g">VMDK→QCOW2</span><span class="pill g">VMware drivers remove</span><span class="pill g">VirtIO inject</span></div>
+      </div>
+    </div>
+
+    <div class="step-row" style="border-color:#22d3a0">
+      <div class="step-num" style="background:#22d3a0">08</div>
+      <div class="step-body">
+        <h4>OpenStack Deploy — Glance → Nova → Neutron</h4>
+        <p>QCOW2 ready hone ke baad — Glance mein image upload hoti hai → Nova se VM create hota hai (converted image + selected flavor se) → Neutron se network port attach hota hai + IP assign hoti hai → VM power on. Migration complete!</p>
+        <div class="pills" style="margin-top:6px"><span class="pill g">Glance upload</span><span class="pill g">Nova create</span><span class="pill g">Neutron port</span><span class="pill g">Power ON</span></div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 5 — OPENSTACK DEEP DIVE
+════════════════════════════════════════════ -->
+<div id="tab-openstack" class="tab-content">
+
+  <h2>OpenStack — Complete Deep Dive</h2>
+  <p class="sub" style="margin-bottom:20px">OpenStack ek open-source private cloud platform hai — jaise AWS ya Azure, lekin apne server par. Migration ka TARGET hai. Tumhara OpenStack: <code>172.17.44.39</code></p>
+
+  <!-- OpenStack Components SVG -->
+  <svg viewBox="0 0 1100 200" width="100%" style="display:block;background:#0a0d14;border-radius:10px;border:1px solid var(--border);margin-bottom:24px">
+    <!-- Keystone center -->
+    <rect x="460" y="70" width="180" height="70" rx="8" fill="#f9731633" stroke="#f97316" stroke-width="2"/>
+    <text x="550" y="100" text-anchor="middle" font-size="13" font-weight="700" fill="#f97316">Keystone</text>
+    <text x="550" y="118" text-anchor="middle" font-size="10" fill="#7a85a0">Identity / Auth Service</text>
+    <text x="550" y="133" text-anchor="middle" font-size="9"  fill="#4a5568">Issues auth tokens</text>
+
+    <!-- Nova -->
+    <rect x="20"  y="60" width="170" height="80" rx="8" fill="#5b8dee22" stroke="#5b8dee"/>
+    <text x="105" y="90" text-anchor="middle" font-size="13" font-weight="700" fill="#5b8dee">Nova</text>
+    <text x="105" y="108" text-anchor="middle" font-size="10" fill="#7a85a0">Compute Service</text>
+    <text x="105" y="124" text-anchor="middle" font-size="9"  fill="#4a5568">VMs create/start/stop</text>
+
+    <!-- Glance -->
+    <rect x="200" y="60" width="170" height="80" rx="8" fill="#22d3a022" stroke="#22d3a0"/>
+    <text x="285" y="90" text-anchor="middle" font-size="13" font-weight="700" fill="#22d3a0">Glance</text>
+    <text x="285" y="108" text-anchor="middle" font-size="10" fill="#7a85a0">Image Service</text>
+    <text x="285" y="124" text-anchor="middle" font-size="9"  fill="#4a5568">QCOW2 images store</text>
+
+    <!-- Neutron -->
+    <rect x="750" y="60" width="170" height="80" rx="8" fill="#a78bfa22" stroke="#a78bfa"/>
+    <text x="835" y="90" text-anchor="middle" font-size="13" font-weight="700" fill="#a78bfa">Neutron</text>
+    <text x="835" y="108" text-anchor="middle" font-size="10" fill="#7a85a0">Network Service</text>
+    <text x="835" y="124" text-anchor="middle" font-size="9"  fill="#4a5568">IP assign, virtual NIC</text>
+
+    <!-- Cinder -->
+    <rect x="930" y="60" width="160" height="80" rx="8" fill="#06b6d422" stroke="#06b6d4"/>
+    <text x="1010" y="90" text-anchor="middle" font-size="13" font-weight="700" fill="#06b6d4">Cinder</text>
+    <text x="1010" y="108" text-anchor="middle" font-size="10" fill="#7a85a0">Block Storage</text>
+    <text x="1010" y="124" text-anchor="middle" font-size="9"  fill="#4a5568">Persistent volumes</text>
+
+    <!-- Horizon -->
+    <rect x="460" y="10" width="180" height="45" rx="8" fill="#ec489922" stroke="#ec4899"/>
+    <text x="550" y="30" text-anchor="middle" font-size="12" font-weight="700" fill="#ec4899">Horizon</text>
+    <text x="550" y="46" text-anchor="middle" font-size="9"  fill="#7a85a0">Web Dashboard (browser UI)</text>
+
+    <!-- Auth lines from Keystone -->
+    <line x1="460" y1="105" x2="370" y2="105" stroke="#f97316" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ao)"/>
+    <line x1="460" y1="105" x2="190" y2="105" stroke="#f97316" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ao)"/>
+    <line x1="640" y1="105" x2="750" y2="105" stroke="#f97316" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ao)"/>
+    <line x1="640" y1="105" x2="930" y2="105" stroke="#f97316" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ao)"/>
+    <line x1="550" y1="70" x2="550" y2="55" stroke="#f97316" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ao)"/>
+
+    <text x="330" y="95"  font-size="9" fill="#f97316" text-anchor="middle">auth token</text>
+    <text x="700" y="95"  font-size="9" fill="#f97316" text-anchor="middle">auth token</text>
+  </svg>
+
+  <div class="grid-2" style="margin-bottom:24px">
+    <div>
+      <h3 style="margin-bottom:12px">Component Details + Migration Role</h3>
+      <table>
+        <tr><th>Component</th><th>Port</th><th>Migration Role</th><th>API Call</th></tr>
+        <tr>
+          <td><strong style="color:#f97316">Keystone</strong></td>
+          <td><code>5000</code></td>
+          <td>First step — auth token lena. Sab API calls mein ye token send hota hai</td>
+          <td><code>POST /identity/v3/auth/tokens</code></td>
+        </tr>
+        <tr>
+          <td><strong style="color:#22d3a0">Glance</strong></td>
+          <td><code>9292</code></td>
+          <td>QCOW2 image upload. vJailbreak yahan converted disk image rakhta hai</td>
+          <td><code>POST /v2/images</code> + <code>PUT /v2/images/{id}/file</code></td>
+        </tr>
+        <tr>
+          <td><strong style="color:#5b8dee">Nova</strong></td>
+          <td><code>8774</code></td>
+          <td>VM create — Glance image + flavor + network se. Migrated VM yahan chalti hai</td>
+          <td><code>POST /v2.1/servers</code></td>
+        </tr>
+        <tr>
+          <td><strong style="color:#a78bfa">Neutron</strong></td>
+          <td><code>9696</code></td>
+          <td>VM ko network port assign — IP milti hai. VMware network → OS network mapping</td>
+          <td><code>POST /v2.0/ports</code></td>
+        </tr>
+        <tr>
+          <td><strong style="color:#06b6d4">Cinder</strong></td>
+          <td><code>8776</code></td>
+          <td>Optional — additional volumes attach karne ke liye (migration mein directly use nahi)</td>
+          <td><code>POST /v3/volumes</code></td>
+        </tr>
+        <tr>
+          <td><strong style="color:#ec4899">Horizon</strong></td>
+          <td><code>80/443</code></td>
+          <td>Browser dashboard — tum <code>172.17.44.39/auth/login</code> pe dekh sakte ho</td>
+          <td>Web UI only</td>
+        </tr>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="margin-bottom:12px">OpenStack Migration Flow (vJailbreak perspective)</h3>
+
+      <div class="step-row">
+        <div class="step-num" style="background:#f97316;font-size:11px">KEY</div>
+        <div class="step-body">
+          <h4>Step 1 — Keystone Auth</h4>
+          <p><code>POST http://172.17.44.39:5000/identity/v3/auth/tokens</code><br>Body: <code>{user: "admin", password: "gPUkZe0Tp1..."}</code><br>Response: <code>X-Subject-Token: &lt;token&gt;</code></p>
+        </div>
+      </div>
+
+      <div class="step-row">
+        <div class="step-num" style="background:#22d3a0;font-size:11px">IMG</div>
+        <div class="step-body">
+          <h4>Step 2 — Glance Image Upload</h4>
+          <p><code>POST http://172.17.44.39:9292/v2/images</code><br>Name: <code>ubuntu24-migrated</code>, format: <code>qcow2</code><br>Then: stream QCOW2 file to <code>/v2/images/{id}/file</code></p>
+        </div>
+      </div>
+
+      <div class="step-row">
+        <div class="step-num" style="background:#5b8dee;font-size:11px">VM</div>
+        <div class="step-body">
+          <h4>Step 3 — Nova VM Create</h4>
+          <p><code>POST http://172.17.44.39:8774/v2.1/servers</code><br>Body: <code>{imageRef: "&lt;glance_id&gt;", flavorRef: "m1.small", networks: [{uuid: "..."}]}</code></p>
+        </div>
+      </div>
+
+      <div class="step-row">
+        <div class="step-num" style="background:#a78bfa;font-size:11px">NET</div>
+        <div class="step-body">
+          <h4>Step 4 — Neutron Network + IP</h4>
+          <p>Nova automatically Neutron se port request karta hai. VM ko IP milti hai from the configured network pool. SSH/ping se verify karo.</p>
+        </div>
+      </div>
+
+      <div class="callout t" style="margin-top:12px">
+        <strong>Tumhara OpenStack already ready hai!</strong><br>
+        Dashboard: <code>http://172.17.44.39/auth/login</code><br>
+        Admin token: <code>gPUkZe0Tp1jRTaPteb9sSqo7y2O7W4zgLzVUdc9A</code><br>
+        Satyabhan ne pehle hi setup kar diya hai — tumhe sirf vJailbreak connect karna hai.
+      </div>
+    </div>
+  </div>
+
+  <!-- OpenStack Concepts Grid -->
+  <h3 style="margin-bottom:14px">OpenStack Key Concepts — Migration Context Mein</h3>
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-title">🖼️ Flavor vs Image</div>
+      <div class="card-sub" style="margin-bottom:8px">Dono alag cheezein hain — confuse mat karo</div>
+      <div class="callout">
+        <strong>Image (Glance):</strong> VM ki hard drive — OS, apps sab. QCOW2 format. "Photo of the disk"<br><br>
+        <strong>Flavor (Nova):</strong> Hardware configuration — kitna CPU, RAM, disk size. Like "t2.micro" on AWS.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">🌐 Networks in OpenStack</div>
+      <div class="card-sub" style="margin-bottom:8px">VMware se alag terminology</div>
+      <div class="callout p">
+        <strong>VMware → OpenStack mapping:</strong><br>
+        Portgroup → Neutron Network<br>
+        vSwitch → Open vSwitch (OVS)<br>
+        VLAN → Neutron Segment<br>
+        VM NIC → Neutron Port
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">📊 VM States in Nova</div>
+      <div class="card-sub" style="margin-bottom:8px">Migration ke time status track karte rehna</div>
+      <div class="callout g">
+        <code>BUILD</code> → VM create ho rahi hai<br>
+        <code>ACTIVE</code> → VM running ✅<br>
+        <code>ERROR</code> → kuch gadbad<br>
+        <code>SHUTOFF</code> → powered off<br>
+        <code>MIGRATING</code> → migration in progress
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 6 — KUBERNETES CRDs
+════════════════════════════════════════════ -->
+<div id="tab-crd" class="tab-content">
+
+  <h2>Kubernetes CRDs — vJailbreak Custom Objects</h2>
+  <p class="sub" style="margin-bottom:20px">CRD = Custom Resource Definition. vJailbreak ne K8s mein apne custom objects define kiye hain jo migration state track karte hain. Jaise normal K8s mein Pod, Deployment hote hain — waise vJailbreak mein MigrationPlan, VMwareCreds hain.</p>
+
+  <div class="grid-2" style="margin-bottom:24px">
+    <div>
+      <table>
+        <tr><th>CRD Name</th><th>K8s Group</th><th>Kya Karta Hai</th><th>Trigger</th></tr>
+        <tr>
+          <td><code>VMwareCreds</code></td>
+          <td><code>vjailbreak.k8s.pf9.io</code></td>
+          <td>ESXi/vCenter credentials store karta hai. Create hote hi VM discovery shuru hoti hai</td>
+          <td>Auto-discovery</td>
+        </tr>
+        <tr>
+          <td><code>VMwareMachine</code></td>
+          <td><code>vjailbreak.k8s.pf9.io</code></td>
+          <td>Discovered VM ka K8s representation — CPU, RAM, disk, power state</td>
+          <td>Auto after VMwareCreds</td>
+        </tr>
+        <tr>
+          <td><code>OpenstackCreds</code></td>
+          <td><code>vjailbreak.k8s.pf9.io</code></td>
+          <td>OpenStack target credentials — Keystone URL, admin user/pass</td>
+          <td>Manual create</td>
+        </tr>
+        <tr>
+          <td><code>MigrationPlan</code></td>
+          <td><code>vjailbreak.k8s.pf9.io</code></td>
+          <td>Migration blueprint — source VM, target flavor, network map, schedule</td>
+          <td>Starts migration</td>
+        </tr>
+        <tr>
+          <td><code>MigrationTemplate</code></td>
+          <td><code>vjailbreak.k8s.pf9.io</code></td>
+          <td>Reusable template — common settings save karo, baar baar use karo</td>
+          <td>Manual</td>
+        </tr>
+        <tr>
+          <td><code>RollingMigrationPlan</code></td>
+          <td><code>vjailbreak.k8s.pf9.io</code></td>
+          <td>Entire ESXi host/cluster ki VMs ko waves mein migrate karta hai</td>
+          <td>Batch migration</td>
+        </tr>
+      </table>
+    </div>
+
+    <div>
+      <div class="callout t" style="margin-bottom:14px">
+        <strong>Useful kubectl commands:</strong><br><br>
+        <code>kubectl get vmwarecreds -n vjailbreak</code><br>
+        <code>kubectl get vmwaremachine -n vjailbreak</code><br>
+        <code>kubectl get migrationplan -n vjailbreak</code><br>
+        <code>kubectl describe migrationplan my-plan -n vjailbreak</code><br>
+        <code>kubectl get events -n vjailbreak</code><br>
+        <code>kubectl logs -n vjailbreak deploy/migration-controller</code>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📋 MigrationPlan YAML Example</div>
+        <pre style="font-size:11px;color:#22d3a0;background:#0a0d14;border-radius:6px;padding:12px;overflow:auto"><code>apiVersion: vjailbreak.k8s.pf9.io/v1alpha1
+kind: MigrationPlan
+metadata:
+  name: ubuntu24-to-openstack
+  namespace: vjailbreak
+spec:
+  migrationTemplate:
+    virtv2vContainerImage: "registry.../v2v-helper:latest"
+    source:
+      vmwareRef:
+        name: ubuntu24.04
+      datacenter: ha-datacenter
+    target:
+      openstackRef:
+        name: openstack-172-17-44-39
+      networkMapping:
+        - source: "VM Network"
+          target: "provider-net"
+      flavorRef: "m1.medium"
+    migrationStrategy:
+      type: cold  # or hot
+      dataCopyStart: "immediate"</code></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top:4px">
+    <strong>API Group full name:</strong> <code>vjailbreak.k8s.pf9.io/v1alpha1</code> — Check with <code>kubectl get crd | grep vjailbreak</code>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 7 — LOCAL SETUP GUIDE
+════════════════════════════════════════════ -->
+<div id="tab-local" class="tab-content">
+
+  <h2>💻 Kya Main vJailbreak Locally Run Kar Sakta Hoon?</h2>
+
+  <div class="grid-2" style="margin-bottom:24px">
+    <div class="callout g" style="padding:18px">
+      <strong style="font-size:15px;display:block;margin-bottom:10px">✅ Haan — Locally Run Ho Sakta Hai</strong>
+      vJailbreak WSL + K3s pe locally run ho sakta hai. Lekin ek important limitation hai — <strong>tumhare laptop ko VMware ESXi aur OpenStack network pe accessible hona chahiye</strong> (172.17.44.x range). Office network pe connected ho — woh satisfy hai.
+    </div>
+    <div class="callout o" style="padding:18px">
+      <strong style="font-size:15px;display:block;margin-bottom:10px">⚠️ Limitations</strong>
+      Local setup mein VDDK ke bina actual disk copy nahi hogi. VDDK VMware se alag download karna padta hai. Plus actual OpenStack par deploy karna padega (local OpenStack nahi lagana). Lekin UI + K8s CRDs + controller — ye sab locally test ho sakta hai.
+    </div>
+  </div>
+
+  <h2 style="margin-bottom:20px">Step-by-Step — Local Setup on WSL</h2>
+
+  <h3 style="color:var(--accent);margin-bottom:12px">PHASE 1 — Prerequisites Check</h3>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#5b8dee">1</div>
+    <div class="step-body">
+      <h4>WSL Ubuntu check karo</h4>
+      <p>WSL terminal mein ye run karo:</p>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>cat /etc/os-release</code> → Ubuntu 22.04 hona chahiye<br>
+        <code>uname -r</code> → kernel version check<br>
+        <code>free -h</code> → minimum 8 GB RAM chahiye
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#5b8dee">2</div>
+    <div class="step-body">
+      <h4>K3s already installed hai — verify karo</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>sudo chmod 644 /etc/rancher/k3s/k3s.yaml</code><br>
+        <code>export KUBECONFIG=/etc/rancher/k3s/k3s.yaml</code><br>
+        <code>kubectl get nodes</code> → STATUS: Ready hona chahiye<br>
+        <code>kubectl get pods --all-namespaces</code> → kube-system pods running
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#5b8dee">3</div>
+    <div class="step-body">
+      <h4>Go install check (vjailbreak build ke liye)</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>go version</code> → go1.21+ chahiye<br>
+        Agar nahi hai: <code>sudo apt install golang-go</code> ya<br>
+        <code>wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz</code><br>
+        <code>sudo tar -xzf go1.21.0.linux-amd64.tar.gz -C /usr/local</code><br>
+        <code>export PATH=$PATH:/usr/local/go/bin</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#5b8dee">4</div>
+    <div class="step-body">
+      <h4>Docker check (container images ke liye)</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>docker --version</code><br>
+        Agar nahi: <code>sudo apt install docker.io</code><br>
+        <code>sudo usermod -aG docker $USER</code><br>
+        <code>newgrp docker</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  <h3 style="color:var(--orange);margin-bottom:12px">PHASE 2 — vjailbreak Repo Setup</h3>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#f97316">5</div>
+    <div class="step-body">
+      <h4>Repo already cloned hai — cd karo</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>cd /mnt/c/Users/yash.pandey/Desktop/All\ calsoft\ subject\ pdf/Virtualization_Vm\ Migaration\ Project/vjailbreak</code><br>
+        <code>ls -la</code> → CLAUDE.md, AGENTS.md, k8s/, v2v-helper/, ui/ dikhne chahiye
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#f97316">6</div>
+    <div class="step-body">
+      <h4>Important files padho (ZAROOR)</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>cat CLAUDE.md</code> → AI agent instructions<br>
+        <code>cat AGENTS.md</code> → Architecture explanation<br>
+        <code>cat README.md</code> → Setup steps<br>
+        <code>cat CONTRIBUTING.md</code> → How to contribute
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#f97316">7</div>
+    <div class="step-body">
+      <h4>Go modules download karo</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>cd /mnt/c/...vjailbreak</code><br>
+        <code>go mod download</code> → all dependencies download<br>
+        <code>go mod tidy</code> → cleanup unused<br>
+        <code>go build ./...</code> → sabkuch compile hona chahiye (errors check karo)
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#f97316">8</div>
+    <div class="step-body">
+      <h4>Deploy folder explore karo</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>ls deploy/</code> → YAML files dekhte hain<br>
+        <code>cat deploy/README.md</code> → deployment instructions<br>
+        Key files: CRD YAMLs, controller deployment, RBAC rules
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  <h3 style="color:var(--green);margin-bottom:12px">PHASE 3 — CRDs Deploy on K3s (Local)</h3>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#22d3a0">9</div>
+    <div class="step-body">
+      <h4>CRDs apply karo (ye locally ho sakta hai)</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>export KUBECONFIG=/etc/rancher/k3s/k3s.yaml</code><br>
+        <code>cd deploy/</code><br>
+        <code>kubectl apply -f crds/</code> → CustomResourceDefinitions create hongi<br>
+        <code>kubectl get crd | grep vjailbreak</code> → list dekhni chahiye
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#22d3a0">10</div>
+    <div class="step-body">
+      <h4>Namespace create karo</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>kubectl create namespace vjailbreak</code><br>
+        <code>kubectl get namespaces</code> → vjailbreak dikhna chahiye
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#22d3a0">11</div>
+    <div class="step-body">
+      <h4>vJailbreak controller deploy karo</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>kubectl apply -f deploy/</code><br>
+        <code>kubectl get pods -n vjailbreak</code> → pods running check<br>
+        <code>kubectl logs -n vjailbreak -l app=migration-controller</code> → logs check
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#22d3a0">12</div>
+    <div class="step-body">
+      <h4>VMwareCreds test karo (ESXi ke saath)</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>kubectl create secret generic esxi-creds \<br>
+  &nbsp;&nbsp;--from-literal=username=root \<br>
+  &nbsp;&nbsp;--from-literal=password=&lt;esxi-pass&gt; \<br>
+  &nbsp;&nbsp;-n vjailbreak</code><br><br>
+        Phir VMwareCreds YAML apply karo:<br>
+        <code>kubectl apply -f vmwarecreds.yaml -n vjailbreak</code><br>
+        <code>kubectl get vmwaremachine -n vjailbreak</code> → VMs discover honi chahiye
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  <h3 style="color:var(--purple);margin-bottom:12px">PHASE 4 — UI Run Karo (Frontend)</h3>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#a78bfa">13</div>
+    <div class="step-body">
+      <h4>Node.js install check</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>node --version</code> → v18+ chahiye<br>
+        Agar nahi: <code>curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -</code><br>
+        <code>sudo apt-get install -y nodejs</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#a78bfa">14</div>
+    <div class="step-body">
+      <h4>UI dependencies install karo</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        <code>cd /mnt/c/...vjailbreak/ui</code><br>
+        <code>npm install</code> → node_modules install hoga<br>
+        <code>npm run dev</code> → dev server start → <code>http://localhost:5173</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#a78bfa">15</div>
+    <div class="step-body">
+      <h4>Backend API config karo</h4>
+      <div class="callout" style="margin-top:6px;font-size:12px">
+        UI ke <code>.env</code> file mein:<br>
+        <code>VITE_API_BASE_URL=http://localhost:8080</code><br>
+        Ya jahan bhi vJailbreak backend run ho raha hai (K8s service URL)
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="callout g" style="padding:16px">
+    <strong style="font-size:14px">📌 Summary — Local Setup Kya Possible Hai:</strong><br><br>
+    ✅ K3s locally — DONE<br>
+    ✅ CRDs deploy locally — possible<br>
+    ✅ Controller run locally — possible<br>
+    ✅ UI locally — possible (npm run dev)<br>
+    ✅ ESXi connection — possible (172.17.44.116 accessible hai tumse)<br>
+    ✅ OpenStack connection — possible (172.17.44.39 accessible hai)<br>
+    ⚠️ VDDK — alag se download karna padega (developer.vmware.com)<br>
+    ⚠️ Actual migration — VDDK ke bina disk copy nahi hogi<br>
+    ✅ Test + explore — CRDs, discovery, UI — sab without VDDK kaam karega
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 8 — POC STEPS
+════════════════════════════════════════════ -->
+<div id="tab-poc" class="tab-content">
+
+  <h2>🚀 POC — ubuntu24.04 VM Migrate Karo ESXi → OpenStack</h2>
+  <p class="sub" style="margin-bottom:20px">Tumhara exact environment use karke — step by step actual migration. Source: <strong>172.17.44.116</strong> → Target: <strong>172.17.44.39</strong></p>
+
+  <div class="grid-2" style="margin-bottom:20px">
+    <div class="card">
+      <div class="card-title">📋 Environment Summary</div>
+      <table style="margin-top:8px">
+        <tr><th>Item</th><th>Value</th><th>Status</th></tr>
+        <tr><td>ESXi Source</td><td><code>172.17.44.116</code></td><td><span class="badge-g badge">✅ Ready</span></td></tr>
+        <tr><td>OpenStack Target</td><td><code>172.17.44.39</code></td><td><span class="badge-g badge">✅ Ready</span></td></tr>
+        <tr><td>K3s (local WSL)</td><td>v1.35.5+k3s1</td><td><span class="badge-g badge">✅ Ready</span></td></tr>
+        <tr><td>Source VM</td><td>ubuntu24.04</td><td><span class="badge-g badge">✅ On ESXi</span></td></tr>
+        <tr><td>VDDK Library</td><td>vmware-vix-disklib</td><td><span class="badge-r badge">⚠️ Download needed</span></td></tr>
+        <tr><td>vJailbreak Appliance</td><td>QCOW2 VM</td><td><span class="badge-o badge">🔄 To deploy</span></td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">⚡ Quick Commands Reference</div>
+      <div class="callout" style="font-size:12px;margin-top:8px">
+        <strong>OpenStack Dashboard:</strong><br>
+        <code>http://172.17.44.39/auth/login</code><br>
+        User: <code>admin</code><br>
+        Token: <code>gPUkZe0Tp1jRTaPteb9sSqo7y2O7W4zgLzVUdc9A</code><br><br>
+        <strong>ESXi:</strong><br>
+        <code>https://172.17.44.116/ui/#/login</code><br>
+        User: <code>root</code>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="color:var(--orange);margin-bottom:14px">POC STEPS — Actual Migration</h3>
+
+  <div class="step-row" style="border-color:#f97316">
+    <div class="step-num" style="background:#f97316">A</div>
+    <div class="step-body">
+      <h4>Satyabhan se vJailbreak QCOW2 appliance lo</h4>
+      <p>vJailbreak ek pre-built Ubuntu VM hai jisme K3s + controller + UI sab pehle se installed hai. Ye QCOW2 format mein milti hai. Satyabhan ko bolna: <em>"Mujhe vJailbreak appliance QCOW2 image chahiye OpenStack par deploy karne ke liye."</em></p>
+      <div class="pills" style="margin-top:6px"><span class="pill o">Ask Satyabhan</span><span class="pill o">QCOW2 file</span></div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#f97316">B</div>
+    <div class="step-body">
+      <h4>vJailbreak VM — OpenStack Horizon se deploy karo</h4>
+      <p><code>http://172.17.44.39/auth/login</code> → Compute → Images → Upload Image → QCOW2 file upload karo → Instances → Launch Instance → vJailbreak image select → flavor: m1.large (4 vCPU, 8 GB RAM minimum) → Network select karo.</p>
+      <div class="callout t" style="margin-top:8px;font-size:12px">Agar UI se nahi ho raha: <code>openstack image create --file vjailbreak.qcow2 --disk-format qcow2 vjailbreak-appliance</code></div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#f97316">C</div>
+    <div class="step-body">
+      <h4>VDDK download + vJailbreak VM par copy karo</h4>
+      <p>1. <code>developer.vmware.com</code> → login → "Virtual Disk Development Kit" download<br>
+      2. <code>scp vmware-vix-disklib-*.tar.gz ubuntu@&lt;vjailbreak-vm-ip&gt;:~/</code><br>
+      3. SSH into vJailbreak VM: <code>ssh ubuntu@&lt;vm-ip&gt;</code><br>
+      4. <code>tar -xzf vmware-vix-disklib-*.tar.gz</code><br>
+      5. <code>sudo cp -r vmware-vix-disklib-distrib /home/ubuntu/</code></p>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num" style="background:#f97316">D</div>
+    <div class="step-body">
+      <h4>/etc/hosts mein ESXi hostname add karo</h4>
+      <p>vJailbreak VM ke andar (SSH karke):<br>
+      <code>sudo nano /etc/hosts</code><br>
+      Add karo: <code>172.17.44.116   esxi-01.local</code><br>
+      <code>172.17.44.117   esxi-02.local</code><br>
+      Ye zaroor karo — ESXi certificates hostname se match karte hain, IP se nahi.</p>
+    </div>
+  </div>
+
+  <div class="step-row" style="border-color:#22d3a0">
+    <div class="step-num" style="background:#22d3a0">E</div>
+    <div class="step-body">
+      <h4>vJailbreak UI open karo</h4>
+      <p>vJailbreak VM ka IP note karo (OpenStack Horizon se dekhna). Browser mein:<br>
+      <code>http://&lt;vjailbreak-vm-ip&gt;:3000</code> ya <code>:8080</code> (README check karo)<br>
+      Login karo → Dashboard dikhna chahiye.</p>
+    </div>
+  </div>
+
+  <div class="step-row" style="border-color:#22d3a0">
+    <div class="step-num" style="background:#22d3a0">F</div>
+    <div class="step-body">
+      <h4>VMware Source Register karo</h4>
+      <p>UI → "Add VMware Source" → IP: <code>172.17.44.116</code> → Username: <code>root</code> → Password → Submit<br>
+      Wait karo — VM list automatically populate hogi. <code>ubuntu24.04</code> dikhna chahiye.</p>
+    </div>
+  </div>
+
+  <div class="step-row" style="border-color:#22d3a0">
+    <div class="step-num" style="background:#22d3a0">G</div>
+    <div class="step-body">
+      <h4>OpenStack Target Register karo</h4>
+      <p>UI → "Add OpenStack Target" → Keystone URL: <code>http://172.17.44.39:5000/identity/v3</code> → Username: <code>admin</code> → Password: (Satyabhan se confirm karo) → Submit<br>
+      Available networks aur flavors list mein aane chahiye.</p>
+    </div>
+  </div>
+
+  <div class="step-row" style="border-color:#a78bfa">
+    <div class="step-num" style="background:#a78bfa">H</div>
+    <div class="step-body">
+      <h4>MigrationPlan Create karo</h4>
+      <p>UI → "New Migration" → Source VM: <code>ubuntu24.04</code> → Target: OpenStack → Flavor: <code>m1.medium</code> (2 vCPU, 4 GB) → Network: available network select karo → Migration Type: <strong>Cold</strong> (start with cold for POC) → Create</p>
+    </div>
+  </div>
+
+  <div class="step-row" style="border-color:#a78bfa">
+    <div class="step-num" style="background:#a78bfa">I</div>
+    <div class="step-body">
+      <h4>Migration monitor karo</h4>
+      <p>UI mein progress bar dikhega. Steps: Powered Off → Copying → Converting → Uploading → Creating VM → Done<br>
+      Simultaneously: <code>kubectl get migrationplan -n vjailbreak -w</code><br>
+      Logs: <code>kubectl logs -n vjailbreak -l migration=ubuntu24 -f</code></p>
+    </div>
+  </div>
+
+  <div class="step-row" style="border-color:#22d3a0">
+    <div class="step-num" style="background:#22d3a0">J</div>
+    <div class="step-body">
+      <h4>Verify — VM OpenStack par chal rahi hai</h4>
+      <p>OpenStack Horizon → Compute → Instances → <code>ubuntu24-migrated</code> ACTIVE dikhna chahiye<br>
+      IP note karo → <code>ping &lt;vm-ip&gt;</code> → <code>ssh ubuntu@&lt;vm-ip&gt;</code><br>
+      <code>uname -a</code> → same Ubuntu version confirm ✅</p>
+    </div>
+  </div>
+
+  <div class="callout g" style="margin-top:16px;padding:16px">
+    <strong>🎉 POC Complete!</strong><br>
+    ESXi par ubuntu24.04 → OpenStack par ubuntu24-migrated. Same OS, same apps, different platform. vJailbreak ka kaam complete. Satyabhan ko screenshot + demo de sakte ho.
+  </div>
+
+</div><!-- end tabs -->
+
+</div><!-- end page -->
+
+<script>
+function showTab(id) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+</script>
+</body>
+</html>

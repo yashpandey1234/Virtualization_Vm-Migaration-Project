@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>VM Migration Architecture — ESXi → OpenStack via vJailbreak</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg:       #07090f;
+  --s1:       #0d1117;
+  --s2:       #161b27;
+  --s3:       #1e2535;
+  --border:   #242d3d;
+  --border2:  #2e3a50;
+  --text:     #e1e7f0;
+  --muted:    #6b7a96;
+  --dim:      #3a4560;
+
+  --esxi:     #e8652a;
+  --esxi-bg:  #e8652a12;
+  --os:       #0ea5e9;
+  --os-bg:    #0ea5e912;
+  --vj:       #a855f7;
+  --vj-bg:    #a855f712;
+  --src:      #f59e0b;
+  --src-bg:   #f59e0b12;
+  --arrow:    #22c55e;
+  --green:    #22c55e;
+  --red:      #f87171;
+  --teal:     #2dd4bf;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* ── TOP HEADER ───────────────────────────── */
+.site-header {
+  background: var(--s1);
+  border-bottom: 1px solid var(--border);
+  padding: 18px 40px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.logo {
+  width: 34px; height: 34px;
+  background: linear-gradient(135deg, var(--vj), var(--os));
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; color: #fff;
+}
+.site-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.site-sub   { font-size: 12px; color: var(--muted); }
+.nav-pills { display: flex; gap: 6px; margin-left: auto; }
+.np {
+  padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 500;
+  cursor: pointer; border: 1px solid var(--border2); color: var(--muted);
+  background: transparent; transition: .15s;
+}
+.np:hover, .np.act { background: var(--s3); color: var(--text); border-color: var(--border2); }
+
+/* ── MAIN LAYOUT ──────────────────────────── */
+.wrapper { max-width: 1280px; margin: 0 auto; padding: 40px 32px 80px; }
+
+/* ── SECTION HEADERS ──────────────────────── */
+.sec-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--muted);
+  margin-bottom: 8px;
+}
+.sec-title { font-size: 22px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.sec-sub   { font-size: 13.5px; color: var(--muted); margin-bottom: 28px; }
+
+/* ── MASTER ARCHITECTURE DIAGRAM ─────────── */
+.arch-wrapper {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 32px;
+  margin-bottom: 40px;
+  position: relative;
+  overflow: hidden;
+}
+.arch-wrapper::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 60% 40% at 50% 0%, #a855f708, transparent);
+  pointer-events: none;
+}
+
+/* ESXi Host box */
+.esxi-host {
+  border: 2px solid var(--esxi);
+  border-radius: 14px;
+  padding: 24px;
+  background: var(--esxi-bg);
+  position: relative;
+}
+.host-label {
+  position: absolute; top: -13px; left: 20px;
+  background: var(--esxi);
+  color: #fff; font-size: 11px; font-weight: 700;
+  padding: 2px 12px; border-radius: 20px; letter-spacing: .05em;
+}
+
+/* VM grid inside ESXi */
+.vm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+/* VM cards */
+.vm-card {
+  border-radius: 10px;
+  padding: 16px;
+  border: 1.5px solid;
+  position: relative;
+  transition: transform .15s;
+}
+.vm-card:hover { transform: translateY(-2px); }
+.vm-card.openstack { border-color: var(--os); background: var(--os-bg); }
+.vm-card.vjailbreak { border-color: var(--vj); background: var(--vj-bg); }
+.vm-card.source     { border-color: var(--src); background: var(--src-bg); }
+
+.vm-icon {
+  width: 36px; height: 36px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; margin-bottom: 10px;
+}
+.vm-icon.os { background: var(--os-bg); border: 1px solid var(--os); }
+.vm-icon.vj { background: var(--vj-bg); border: 1px solid var(--vj); }
+.vm-icon.sr { background: var(--src-bg); border: 1px solid var(--src); }
+
+.vm-name {
+  font-size: 13px; font-weight: 700; color: var(--text);
+  margin-bottom: 2px;
+}
+.vm-ip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--muted); margin-bottom: 10px;
+}
+.vm-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+.badge {
+  font-size: 10px; font-weight: 600; padding: 2px 8px;
+  border-radius: 10px;
+}
+.badge.os { background: #0ea5e918; color: var(--os); border: 1px solid #0ea5e930; }
+.badge.vj { background: #a855f718; color: var(--vj); border: 1px solid #a855f730; }
+.badge.sr { background: #f59e0b18; color: var(--src); border: 1px solid #f59e0b30; }
+.badge.gr { background: #22c55e18; color: var(--green); border: 1px solid #22c55e30; }
+.badge.re { background: #f8717118; color: var(--red); border: 1px solid #f8717130; }
+
+/* Conn lines SVG */
+.conn-svg {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+  overflow: visible;
+}
+
+/* ── PHASE STRIP ──────────────────────────── */
+.phases {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+  margin-bottom: 40px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.phase-item {
+  padding: 18px 16px;
+  background: var(--s1);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  transition: background .15s;
+  position: relative;
+}
+.phase-item:last-child { border-right: none; }
+.phase-item:hover, .phase-item.active { background: var(--s2); }
+.phase-item.active::after {
+  content: '';
+  position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+  background: var(--vj);
+}
+.ph-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; font-weight: 700; color: var(--vj);
+  margin-bottom: 6px;
+}
+.ph-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+.ph-sub   { font-size: 11px; color: var(--muted); }
+
+/* ── PHASE DETAIL PANELS ──────────────────── */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── STEP TIMELINE ────────────────────────── */
+.timeline { position: relative; padding-left: 48px; }
+.timeline::before {
+  content: '';
+  position: absolute; left: 18px; top: 0; bottom: 0;
+  width: 2px; background: var(--border2);
+}
+.tl-step {
+  position: relative;
+  margin-bottom: 24px;
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  transition: border-color .15s;
+}
+.tl-step:hover { border-color: var(--border2); }
+.tl-dot {
+  position: absolute;
+  left: -38px; top: 18px;
+  width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; color: #fff;
+}
+.tl-step-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; font-weight: 700; color: var(--muted);
+  margin-bottom: 4px;
+}
+.tl-step-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.tl-step-desc  { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; line-height: 1.6; }
+
+/* code snippet */
+.snippet {
+  background: #060810;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 10px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: #7dd3a8;
+  line-height: 1.7;
+  overflow-x: auto;
+  white-space: pre;
+  position: relative;
+}
+.snippet .c { color: #3d4f6a; }
+.snippet .k { color: #7aa2d4; }
+.snippet .v { color: #e8a87c; }
+.snippet .h { color: #e06c75; }
+
+.copy-btn {
+  position: absolute; top: 8px; right: 8px;
+  background: var(--s3); border: 1px solid var(--border2);
+  color: var(--muted); border-radius: 4px; padding: 3px 9px;
+  font-size: 10px; cursor: pointer; font-family: 'Inter', sans-serif;
+}
+.copy-btn:hover { color: var(--text); }
+
+/* tech pills */
+.tech-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tech {
+  font-size: 11px; font-weight: 500;
+  padding: 3px 10px; border-radius: 20px;
+  border: 1px solid var(--border2); color: var(--muted);
+  background: var(--s2);
+}
+.tech.os  { border-color: #0ea5e940; color: var(--os); background: var(--os-bg); }
+.tech.vj  { border-color: #a855f740; color: var(--vj); background: var(--vj-bg); }
+.tech.src { border-color: #f59e0b40; color: var(--src); background: var(--src-bg); }
+.tech.go  { border-color: #22c55e40; color: var(--green); background: #22c55e0e; }
+
+/* ── GRID LAYOUTS ─────────────────────────── */
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+.card {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px;
+}
+.card-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.card-sub   { font-size: 12px; color: var(--muted); }
+
+/* info row */
+.irow { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.irow:last-child { border-bottom: none; }
+.irow-label { font-size: 12px; color: var(--muted); }
+.irow-val   { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text); }
+
+/* callout */
+.callout {
+  background: var(--s2); border-left: 3px solid var(--vj);
+  border-radius: 0 8px 8px 0; padding: 12px 16px;
+  font-size: 12.5px; color: var(--muted); margin: 12px 0;
+  line-height: 1.6;
+}
+.callout.os { border-left-color: var(--os); }
+.callout.sr { border-left-color: var(--src); }
+.callout.go { border-left-color: var(--green); }
+.callout strong { color: var(--text); }
+
+/* divider */
+.div { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ── FINAL STATUS BAR ─────────────────────── */
+.status-bar {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px 24px;
+  display: flex; gap: 24px; flex-wrap: wrap;
+  margin-top: 40px;
+}
+.status-item { display: flex; align-items: center; gap: 10px; }
+.status-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.status-label { font-size: 12.5px; color: var(--muted); }
+.status-val   { font-size: 12.5px; font-weight: 600; color: var(--text); }
+
+/* ── FINAL RESULT CARD ────────────────────── */
+.result-grid {
+  display: grid; grid-template-columns: 1fr auto 1fr; gap: 0;
+  margin-top: 28px; align-items: center;
+}
+.result-box {
+  border: 1.5px solid; border-radius: 12px; padding: 20px;
+}
+.result-arrow {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 0 20px;
+}
+.ra-line {
+  width: 2px; height: 40px;
+  background: linear-gradient(to bottom, var(--vj), var(--os));
+}
+.ra-label { font-size: 11px; color: var(--muted); text-align: center; }
+
+@media (max-width: 900px) {
+  .vm-grid { grid-template-columns: 1fr; }
+  .phases  { grid-template-columns: 1fr 1fr; }
+  .g2, .g3 { grid-template-columns: 1fr; }
+  .result-grid { grid-template-columns: 1fr; }
+  .nav-pills { display: none; }
+  .wrapper { padding: 20px 16px 60px; }
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="site-header">
+  <div class="logo">VJ</div>
+  <div>
+    <div class="site-title">VM Migration Architecture</div>
+    <div class="site-sub">ESXi → vJailbreak → OpenStack (Kolla Ansible)</div>
+  </div>
+  <nav class="nav-pills">
+    <button class="np act" onclick="scrollTo(0,0)">Overview</button>
+    <button class="np" onclick="document.getElementById('phases').scrollIntoView({behavior:'smooth'})">Phases</button>
+    <button class="np" onclick="document.getElementById('steps').scrollIntoView({behavior:'smooth'})">Steps</button>
+    <button class="np" onclick="document.getElementById('result').scrollIntoView({behavior:'smooth'})">Result</button>
+  </nav>
+</header>
+
+<div class="wrapper">
+
+  <!-- ════════════════════════════════════════
+       SECTION 1 — MASTER ARCHITECTURE
+  ════════════════════════════════════════ -->
+  <div class="sec-label">Architecture Overview</div>
+  <div class="sec-title">Poora System — Ek Nazar Mein</div>
+  <div class="sec-sub">Teenon VMs ESXi ke andar chalti hain. vJailbreak VM Source VM ko read karke OpenStack VM mein migrate karta hai.</div>
+
+  <div class="arch-wrapper">
+
+    <!-- ESXi host outer box -->
+    <div class="esxi-host">
+      <div class="host-label">🖥️ PHYSICAL SERVER — VMware ESXi Hypervisor</div>
+
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px; margin-top:8px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--esxi)">172.17.44.116 / .117 / .119</span>
+        <span style="font-size:11px;color:var(--muted)">38 vCPU · 127 GB RAM · 7.7 TB Storage</span>
+        <span class="badge gr">38 GHz Free</span>
+        <span class="badge gr">94 GB RAM Free</span>
+      </div>
+
+      <!-- 3 VMs -->
+      <div class="vm-grid">
+
+        <!-- VM 1 — OpenStack -->
+        <div class="vm-card openstack">
+          <div class="vm-icon os">☁️</div>
+          <div class="vm-name">VM 1 — OpenStack Node</div>
+          <div class="vm-ip">platform9-newvm · 172.17.44.XXX</div>
+          <div class="vm-badges">
+            <span class="badge os">Ubuntu 22.04</span>
+            <span class="badge os">Kolla Ansible</span>
+            <span class="badge os">Docker</span>
+            <span class="badge os">Nova</span>
+            <span class="badge os">Glance</span>
+            <span class="badge os">Neutron</span>
+            <span class="badge os">Keystone</span>
+            <span class="badge os">Horizon</span>
+          </div>
+          <div style="margin-top:12px;font-size:11px;color:var(--os);font-weight:600">
+            🎯 Migration TARGET — Migrated VMs yahan jayengi
+          </div>
+        </div>
+
+        <!-- VM 2 — vJailbreak -->
+        <div class="vm-card vjailbreak">
+          <div class="vm-icon vj">⚙️</div>
+          <div class="vm-name">VM 2 — vJailbreak Node</div>
+          <div class="vm-ip">migration-node · 172.17.44.YYY</div>
+          <div class="vm-badges">
+            <span class="badge vj">Ubuntu 22.04</span>
+            <span class="badge vj">K3s / K8s</span>
+            <span class="badge vj">virt-v2v</span>
+            <span class="badge vj">VDDK</span>
+            <span class="badge vj">govmomi</span>
+            <span class="badge vj">nbdkit</span>
+          </div>
+          <div style="margin-top:12px;font-size:11px;color:var(--vj);font-weight:600">
+            🔄 Migration ENGINE — Source read karke Target mein convert karta hai
+          </div>
+        </div>
+
+        <!-- VM 3 — Source -->
+        <div class="vm-card source">
+          <div class="vm-icon sr">💾</div>
+          <div class="vm-name">VM 3 — Source VM</div>
+          <div class="vm-ip">ubuntu24.04 / windows-01 / rhel92</div>
+          <div class="vm-badges">
+            <span class="badge sr">Running on ESXi</span>
+            <span class="badge sr">VMDK format</span>
+            <span class="badge sr">Any OS</span>
+          </div>
+          <div style="margin-top:12px;font-size:11px;color:var(--src);font-weight:600">
+            📦 Migration SOURCE — Ye VM migrate hogi
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Connection flows inside ESXi -->
+      <svg class="conn-svg" viewBox="0 0 900 110" style="margin-top:4px">
+        <defs>
+          <marker id="av" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3z" fill="#a855f7"/>
+          </marker>
+          <marker id="ao" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3z" fill="#0ea5e9"/>
+          </marker>
+          <marker id="ag" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3z" fill="#f59e0b"/>
+          </marker>
+          <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3z" fill="#22c55e"/>
+          </marker>
+        </defs>
+
+        <!-- vJailbreak → Source VM (VDDK read) -->
+        <path d="M455,20 L455,55 Q455,65 445,65 L290,65" fill="none" stroke="#f59e0b" stroke-width="2" marker-end="url(#ag)" stroke-dasharray="5 3"/>
+        <rect x="310" y="42" width="105" height="20" rx="4" fill="#07090f"/>
+        <text x="362" y="56" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#f59e0b">VDDK + govmomi</text>
+
+        <!-- vJailbreak → OpenStack (upload) -->
+        <path d="M455,20 L455,55 Q455,65 465,65 L620,65" fill="none" stroke="#0ea5e9" stroke-width="2" marker-end="url(#ao)" stroke-dasharray="5 3"/>
+        <rect x="488" y="42" width="110" height="20" rx="4" fill="#07090f"/>
+        <text x="543" y="56" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#0ea5e9">Glance API → Nova</text>
+
+        <!-- Read arrow label -->
+        <circle cx="455" cy="18" r="4" fill="#a855f7"/>
+        <text x="455" y="9" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#a855f7">vJailbreak</text>
+
+        <!-- ESXi manages all -->
+        <text x="450" y="100" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#3a4560">── Sab ESXi Hypervisor ke andar chal raha hai ──</text>
+      </svg>
+
+    </div><!-- esxi-host end -->
+
+    <!-- Legend -->
+    <div style="display:flex;gap:20px;margin-top:16px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)">
+        <div style="width:28px;height:2px;background:var(--src);opacity:.7"></div>
+        VDDK Disk Read (Source → vJailbreak)
+      </div>
+      <div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)">
+        <div style="width:28px;height:2px;background:var(--os);opacity:.7"></div>
+        QCOW2 Upload (vJailbreak → OpenStack)
+      </div>
+      <div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)">
+        <div style="width:28px;height:2px;background:var(--vj);opacity:.7"></div>
+        K8s CRD control flow
+      </div>
+    </div>
+
+  </div><!-- arch-wrapper end -->
+
+
+  <!-- ════════════════════════════════════════
+       SECTION 2 — PHASE NAVIGATOR
+  ════════════════════════════════════════ -->
+  <div id="phases"></div>
+  <div class="sec-label" style="margin-top:8px">Project Phases</div>
+  <div class="sec-title">5 Phases — Click Karke Detail Dekho</div>
+  <div class="sec-sub">Zero se shuru karke complete migration tak ka roadmap.</div>
+
+  <div class="phases" id="phase-tabs">
+    <div class="phase-item active" onclick="showPhase(0)">
+      <div class="ph-num">PHASE 01</div>
+      <div class="ph-title">OpenStack VM Create</div>
+      <div class="ph-sub">ESXi pe Ubuntu VM + Kolla Ansible</div>
+    </div>
+    <div class="phase-item" onclick="showPhase(1)">
+      <div class="ph-num">PHASE 02</div>
+      <div class="ph-title">vJailbreak VM Create</div>
+      <div class="ph-sub">K3s + virt-v2v + VDDK setup</div>
+    </div>
+    <div class="phase-item" onclick="showPhase(2)">
+      <div class="ph-num">PHASE 03</div>
+      <div class="ph-title">ESXi Connect + Discover</div>
+      <div class="ph-sub">govmomi se VM inventory fetch</div>
+    </div>
+    <div class="phase-item" onclick="showPhase(3)">
+      <div class="ph-num">PHASE 04</div>
+      <div class="ph-title">Migration Execute</div>
+      <div class="ph-sub">VDDK → virt-v2v → QCOW2 → Nova</div>
+    </div>
+    <div class="phase-item" onclick="showPhase(4)">
+      <div class="ph-num">PHASE 05</div>
+      <div class="ph-title">Verify + Validate</div>
+      <div class="ph-sub">VM running on OpenStack confirm</div>
+    </div>
+  </div>
+
+  <!-- PHASE PANELS -->
+  <div id="steps">
+
+  <!-- PANEL 0 — OpenStack -->
+  <div class="panel active" id="panel-0">
+    <div class="callout os">
+      <strong>Goal:</strong> ESXi pe ek nayi Ubuntu 22.04 VM banao aur uspe Kolla Ansible se OpenStack deploy karo. Ye VM hi tumhara "private cloud" banega jahan migrated VMs chalegi.
+    </div>
+
+    <div class="g2">
+      <div class="card">
+        <div class="card-title" style="color:var(--os)">☁️ VM 1 Specs (OpenStack Node)</div>
+        <div class="irow"><span class="irow-label">VM Name</span><span class="irow-val">platform9-newvm</span></div>
+        <div class="irow"><span class="irow-label">OS</span><span class="irow-val">Ubuntu 22.04 LTS</span></div>
+        <div class="irow"><span class="irow-label">vCPU</span><span class="irow-val">8–16 cores</span></div>
+        <div class="irow"><span class="irow-label">RAM</span><span class="irow-val">32 GB</span></div>
+        <div class="irow"><span class="irow-label">Disk</span><span class="irow-val">200 GB+</span></div>
+        <div class="irow"><span class="irow-label">NICs</span><span class="irow-val">2 (mgmt + external)</span></div>
+        <div class="irow"><span class="irow-label">Internet</span><span class="irow-val">Required (image pull)</span></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" style="color:var(--os)">Services After Install</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
+          <span class="badge os">Keystone (Auth)</span>
+          <span class="badge os">Nova (Compute)</span>
+          <span class="badge os">Glance (Images)</span>
+          <span class="badge os">Neutron (Network)</span>
+          <span class="badge os">Horizon (Dashboard)</span>
+          <span class="badge os">MariaDB</span>
+          <span class="badge os">RabbitMQ</span>
+          <span class="badge os">Placement API</span>
+          <span class="badge os">Cinder (Storage)</span>
+        </div>
+        <div class="callout os" style="margin-top:12px">
+          Ye sab Docker containers mein chalenge — Kolla Ansible iska khayal rakhega.
+        </div>
+      </div>
+    </div>
+
+    <div class="timeline">
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--os)">1</div>
+        <div class="tl-step-num">STEP 1.1</div>
+        <div class="tl-step-title">ESXi pe Ubuntu VM Create Karo</div>
+        <div class="tl-step-desc">ESXi UI (172.17.44.116) → Create VM → Ubuntu 22.04 → 16 vCPU, 32 GB RAM, 200 GB disk, 2 network adapters. Ubuntu ISO se install karo. Static IP set karo.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># ESXi pe VM create hone ke baad Ubuntu terminal mein:</span>
+<span class="k">sudo</span> apt update && <span class="k">sudo</span> apt upgrade -y
+<span class="k">sudo</span> apt install -y git python3-pip python3-venv docker.io curl
+<span class="k">sudo</span> usermod -aG docker $USER
+<span class="k">newgrp</span> docker
+<span class="c"># Verify</span>
+<span class="k">docker</span> --version && <span class="k">ip</span> a</div>
+        <div class="tech-row"><span class="tech os">ESXi UI</span><span class="tech os">Ubuntu 22.04</span><span class="tech os">Static IP</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--os)">2</div>
+        <div class="tl-step-num">STEP 1.2</div>
+        <div class="tl-step-title">Kolla Ansible Install Karo</div>
+        <div class="tl-step-desc">Python virtual environment mein Kolla Ansible install karo. System se alag rakho taaki conflicts na ho.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># Virtual environment banao</span>
+python3 -m venv ~/kolla-venv
+<span class="k">source</span> ~/kolla-venv/bin/activate
+
+<span class="c"># Ansible + Kolla install</span>
+pip install -U pip
+pip install <span class="v">'ansible-core>=2.14,<2.16'</span>
+pip install git+https://opendev.org/openstack/kolla-ansible@stable/2024.1
+
+<span class="c"># Verify</span>
+<span class="k">kolla-ansible</span> --version</div>
+        <div class="tech-row"><span class="tech os">Python venv</span><span class="tech os">Kolla Ansible 2024.1</span><span class="tech os">Ansible Core</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--os)">3</div>
+        <div class="tl-step-num">STEP 1.3</div>
+        <div class="tl-step-title">globals.yml Configure Karo</div>
+        <div class="tl-step-desc">Ye Kolla ka main config file hai — NIC names, VIP address, OpenStack version sab yahan define karo.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># Config files copy karo</span>
+<span class="k">sudo</span> mkdir -p /etc/kolla
+<span class="k">sudo</span> chown $USER:$USER /etc/kolla
+cp -r ~/kolla-venv/share/kolla-ansible/etc_examples/kolla/* /etc/kolla/
+cp ~/kolla-venv/share/kolla-ansible/ansible/inventory/all-in-one .
+
+<span class="c"># globals.yml mein ye important values set karo:</span>
+<span class="v">kolla_base_distro</span>: "ubuntu"
+<span class="v">openstack_release</span>: "2024.1"
+<span class="v">kolla_internal_vip_address</span>: <span class="h">"172.17.44.200"</span>  <span class="c"># Unused IP</span>
+<span class="v">network_interface</span>: <span class="h">"ens3"</span>             <span class="c"># ip a se check karo</span>
+<span class="v">neutron_external_interface</span>: <span class="h">"ens4"</span>    <span class="c"># 2nd NIC</span>
+<span class="v">nova_compute_virt_type</span>: "qemu"          <span class="c"># Nested virt ke liye</span>
+<span class="v">enable_neutron_provider_networks</span>: "yes"</div>
+        <div class="tech-row"><span class="tech os">globals.yml</span><span class="tech os">VIP: 172.17.44.200</span><span class="tech os">all-in-one inventory</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--os)">4</div>
+        <div class="tl-step-num">STEP 1.4</div>
+        <div class="tl-step-title">Deploy OpenStack!</div>
+        <div class="tl-step-desc">3 commands — 45-90 min lagenge. failed=0 aana chahiye har baar.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="k">source</span> ~/kolla-venv/bin/activate
+<span class="k">kolla-genpwd</span>                                    <span class="c"># Passwords generate</span>
+<span class="k">kolla-ansible</span> -i ./all-in-one bootstrap-servers  <span class="c"># Dependencies</span>
+<span class="k">kolla-ansible</span> -i ./all-in-one prechecks          <span class="c"># Validate config</span>
+<span class="k">kolla-ansible</span> -i ./all-in-one pull               <span class="c"># Docker images</span>
+<span class="k">kolla-ansible</span> -i ./all-in-one deploy             <span class="c"># 🚀 DEPLOY!</span>
+<span class="k">kolla-ansible</span> -i ./all-in-one post-deploy        <span class="c"># Admin creds</span>
+
+<span class="c"># Verify</span>
+<span class="k">source</span> /etc/kolla/admin-openrc.sh
+openstack service list</div>
+        <div class="tech-row"><span class="tech os">bootstrap-servers</span><span class="tech os">prechecks</span><span class="tech os">deploy</span><span class="tech os">post-deploy</span></div>
+      </div>
+
+      <div class="tl-step" style="border-color:var(--green)">
+        <div class="tl-dot" style="background:var(--green)">✓</div>
+        <div class="tl-step-num">VERIFY 1</div>
+        <div class="tl-step-title">OpenStack Dashboard Access Karo</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># Browser mein open karo:</span>
+http://172.17.44.200        <span class="c"># Horizon Dashboard</span>
+<span class="c"># Username: admin</span>
+<span class="c"># Password: (passwords.yml se keystone_admin_password)</span>
+
+<span class="c"># CLI verify:</span>
+<span class="k">openstack</span> network list
+<span class="k">openstack</span> image list
+<span class="k">docker</span> ps | wc -l      <span class="c"># 20+ containers chalне chahiye</span></div>
+        <div class="callout go" style="margin-top:8px"><strong>✅ Phase 1 Done!</strong> Tumhara apna OpenStack bana gaya. Ab vJailbreak VM banao.</div>
+      </div>
+
+    </div>
+  </div><!-- panel-0 end -->
+
+  <!-- PANEL 1 — vJailbreak -->
+  <div class="panel" id="panel-1">
+    <div class="callout" style="border-left-color:var(--vj)">
+      <strong>Goal:</strong> Dusri Ubuntu VM banao ESXi pe — isme K3s + vJailbreak deploy karo. Ye VM migration ka "brain" hai — ESXi se disk padhega, convert karega, aur OpenStack mein upload karega.
+    </div>
+
+    <div class="g2">
+      <div class="card">
+        <div class="card-title" style="color:var(--vj)">⚙️ VM 2 Specs (vJailbreak Node)</div>
+        <div class="irow"><span class="irow-label">VM Name</span><span class="irow-val">migration-node</span></div>
+        <div class="irow"><span class="irow-label">OS</span><span class="irow-val">Ubuntu 22.04 LTS</span></div>
+        <div class="irow"><span class="irow-label">vCPU</span><span class="irow-val">8 cores</span></div>
+        <div class="irow"><span class="irow-label">RAM</span><span class="irow-val">16 GB</span></div>
+        <div class="irow"><span class="irow-label">Disk</span><span class="irow-val">100 GB+</span></div>
+        <div class="irow"><span class="irow-label">Access</span><span class="irow-val">ESXi + OpenStack dono</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="color:var(--vj)">Tools Installed</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
+          <span class="badge vj">K3s (Kubernetes)</span>
+          <span class="badge vj">vJailbreak Controller</span>
+          <span class="badge vj">virt-v2v</span>
+          <span class="badge vj">VDDK Library</span>
+          <span class="badge vj">nbdkit</span>
+          <span class="badge vj">govmomi</span>
+          <span class="badge vj">kubectl</span>
+          <span class="badge vj">openstack CLI</span>
+        </div>
+        <div class="callout" style="margin-top:12px;border-left-color:var(--vj)">
+          VDDK = VMware ka closed-source library — developer.vmware.com se download karna padega.
+        </div>
+      </div>
+    </div>
+
+    <div class="timeline">
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--vj)">1</div>
+        <div class="tl-step-num">STEP 2.1</div>
+        <div class="tl-step-title">ESXi pe Dusri Ubuntu VM Create Karo</div>
+        <div class="tl-step-desc">Same process — ESXi UI se create karo. Is VM ko ESXi aur OpenStack dono se network connectivity chahiye.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># Ubuntu install + base setup</span>
+<span class="k">sudo</span> apt update && <span class="k">sudo</span> apt upgrade -y
+<span class="k">sudo</span> apt install -y git curl wget python3-pip docker.io virt-v2v nbdkit
+
+<span class="c"># Docker enable</span>
+<span class="k">sudo</span> systemctl enable docker --now
+<span class="k">sudo</span> usermod -aG docker $USER</div>
+        <div class="tech-row"><span class="tech vj">Ubuntu 22.04</span><span class="tech vj">virt-v2v</span><span class="tech vj">nbdkit</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--vj)">2</div>
+        <div class="tl-step-num">STEP 2.2</div>
+        <div class="tl-step-title">K3s Install Karo</div>
+        <div class="tl-step-desc">K3s lightweight Kubernetes hai — vJailbreak iske upar CRDs aur controllers run karta hai.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># K3s install</span>
+curl -sfL https://get.k3s.io | sh -
+
+<span class="c"># Kubeconfig fix</span>
+<span class="k">sudo</span> chmod 644 /etc/rancher/k3s/k3s.yaml
+<span class="k">export</span> <span class="v">KUBECONFIG</span>=/etc/rancher/k3s/k3s.yaml
+<span class="k">echo</span> <span class="v">'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml'</span> >> ~/.bashrc
+
+<span class="c"># Verify</span>
+<span class="k">kubectl</span> get nodes    <span class="c"># STATUS: Ready hona chahiye</span>
+<span class="k">kubectl</span> get pods -A  <span class="c"># kube-system pods running</span></div>
+        <div class="tech-row"><span class="tech vj">K3s</span><span class="tech vj">kubectl</span><span class="tech vj">KUBECONFIG</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--vj)">3</div>
+        <div class="tl-step-num">STEP 2.3</div>
+        <div class="tl-step-title">VDDK Library Place Karo</div>
+        <div class="tl-step-desc">VMware developer portal se download karo. vJailbreak is exact path mein dhundta hai.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># Download: developer.vmware.com → VDDK
+# Phir is VM mein copy karo:</span>
+<span class="k">scp</span> VMware-vix-disklib-*.tar.gz ubuntu@migration-node-ip:~/
+
+<span class="c"># Extract + place</span>
+<span class="k">tar</span> -xzf VMware-vix-disklib-*.tar.gz
+<span class="k">sudo</span> cp -r vmware-vix-disklib-distrib /home/ubuntu/
+
+<span class="c"># Verify — .so files dikhne chahiye</span>
+<span class="k">ls</span> /home/ubuntu/vmware-vix-disklib-distrib/lib64/</div>
+        <div class="tech-row"><span class="tech vj">VDDK</span><span class="tech vj">/home/ubuntu/vmware-vix-disklib-distrib</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--vj)">4</div>
+        <div class="tl-step-num">STEP 2.4</div>
+        <div class="tl-step-title">vJailbreak Deploy on K3s</div>
+        <div class="tl-step-desc">vjailbreak repo se deploy yamls apply karo. CRDs + Controller pods start honge.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button"><span class="c"># /etc/hosts mein ESXi hostname add karo</span>
+<span class="k">echo</span> <span class="v">"172.17.44.116  esxi-host-01"</span> | <span class="k">sudo</span> tee -a /etc/hosts
+<span class="k">echo</span> <span class="v">"172.17.44.119  esxi-host-02"</span> | <span class="k">sudo</span> tee -a /etc/hosts
+
+<span class="c"># vjailbreak deploy</span>
+<span class="k">cd</span> ~/vjailbreak
+<span class="k">kubectl</span> apply -f deploy/crds/
+<span class="k">kubectl</span> create namespace vjailbreak
+<span class="k">kubectl</span> apply -f deploy/ -n vjailbreak
+
+<span class="c"># Verify pods</span>
+<span class="k">kubectl</span> get pods -n vjailbreak
+<span class="c"># migration-controller pod Running hona chahiye</span></div>
+        <div class="tech-row"><span class="tech vj">CRDs</span><span class="tech vj">vjailbreak namespace</span><span class="tech vj">migration-controller</span></div>
+      </div>
+
+      <div class="tl-step" style="border-color:var(--green)">
+        <div class="tl-dot" style="background:var(--green)">✓</div>
+        <div class="tl-step-num">VERIFY 2</div>
+        <div class="tl-step-title">vJailbreak Ready Check</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="k">kubectl</span> get pods -n vjailbreak        <span class="c"># All Running</span>
+<span class="k">kubectl</span> get crd | grep vjailbreak      <span class="c"># CRDs listed</span>
+<span class="k">ls</span> /home/ubuntu/vmware-vix-disklib-distrib/  <span class="c"># VDDK present</span></div>
+        <div class="callout go" style="margin-top:8px"><strong>✅ Phase 2 Done!</strong> vJailbreak ready hai. Ab ESXi connect karo.</div>
+      </div>
+
+    </div>
+  </div><!-- panel-1 end -->
+
+  <!-- PANEL 2 — Discover -->
+  <div class="panel" id="panel-2">
+    <div class="callout sr">
+      <strong>Goal:</strong> vJailbreak ko ESXi se connect karo. govmomi library use karke ESXi pe chal rahi saari VMs ki list fetch hogi. Source VM choose karoge migration ke liye.
+    </div>
+
+    <div class="g3">
+      <div class="card">
+        <div class="card-title" style="color:var(--src)">Source — ESXi</div>
+        <div class="irow"><span class="irow-label">IP</span><span class="irow-val">172.17.44.116</span></div>
+        <div class="irow"><span class="irow-label">User</span><span class="irow-val">root</span></div>
+        <div class="irow"><span class="irow-label">Protocol</span><span class="irow-val">vSphere API / HTTPS</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="color:var(--vj)">Tool</div>
+        <div class="irow"><span class="irow-label">Library</span><span class="irow-val">govmomi (Go)</span></div>
+        <div class="irow"><span class="irow-label">Auth</span><span class="irow-val">VMwareCreds CRD</span></div>
+        <div class="irow"><span class="irow-label">Protocol</span><span class="irow-val">SOAP / REST</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="color:var(--os)">Result</div>
+        <div class="irow"><span class="irow-label">ubuntu24.04</span><span class="irow-val badge sr">candidate</span></div>
+        <div class="irow"><span class="irow-label">rhel92</span><span class="irow-val badge sr">candidate</span></div>
+        <div class="irow"><span class="irow-label">windows-01</span><span class="irow-val badge sr">candidate</span></div>
+      </div>
+    </div>
+
+    <div class="timeline">
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--src)">1</div>
+        <div class="tl-step-num">STEP 3.1</div>
+        <div class="tl-step-title">VMwareCreds CRD Create Karo</div>
+        <div class="tl-step-desc">Ye CRD create hote hi vJailbreak automatically ESXi se connect karke VMs discover karta hai.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># Secret banao credentials ke liye</span>
+<span class="k">kubectl</span> create secret generic esxi-creds \
+  --from-literal=<span class="v">username</span>=root \
+  --from-literal=<span class="v">password</span>=<span class="h">&lt;esxi-password&gt;</span> \
+  -n vjailbreak
+
+<span class="c"># vmwarecreds.yaml</span>
+apiVersion: vjailbreak.k8s.pf9.io/v1alpha1
+kind: VMwareCreds
+metadata:
+  name: esxi-116
+  namespace: vjailbreak
+spec:
+  host: <span class="h">"172.17.44.116"</span>
+  credentialsRef:
+    name: esxi-creds
+
+<span class="c"># Apply karo</span>
+<span class="k">kubectl</span> apply -f vmwarecreds.yaml</div>
+        <div class="tech-row"><span class="tech src">VMwareCreds CRD</span><span class="tech src">govmomi</span><span class="tech src">vSphere API</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--src)">2</div>
+        <div class="tl-step-num">STEP 3.2</div>
+        <div class="tl-step-title">VM Discovery Verify Karo</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># VMs discover hui ya nahi:</span>
+<span class="k">kubectl</span> get vmwaremachine -n vjailbreak
+
+<span class="c"># Expected output:</span>
+NAME           AGE
+ubuntu24.04    2m
+rhel92         2m
+windows-01     2m
+compute-1      2m</div>
+        <div class="callout" style="border-left-color:var(--src)">Ye list automatically populate hoti hai — manually kuch nahi karna. govmomi background mein ESXi se pooch leta hai.</div>
+      </div>
+
+      <div class="tl-step" style="border-color:var(--green)">
+        <div class="tl-dot" style="background:var(--green)">✓</div>
+        <div class="tl-step-num">VERIFY 3</div>
+        <div class="tl-step-title">Source VM Select Karo</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># ubuntu24.04 details dekho</span>
+<span class="k">kubectl</span> describe vmwaremachine ubuntu24.04 -n vjailbreak
+
+<span class="c"># Power state check</span>
+<span class="c"># PoweredOn: true → Cold migration ke liye band karna padega</span></div>
+        <div class="callout go" style="margin-top:8px"><strong>✅ Phase 3 Done!</strong> ESXi connected. VMs discovered. ubuntu24.04 select karo migration ke liye.</div>
+      </div>
+    </div>
+  </div><!-- panel-2 end -->
+
+  <!-- PANEL 3 — Migration -->
+  <div class="panel" id="panel-3">
+    <div class="callout" style="border-left-color:var(--vj)">
+      <strong>Goal:</strong> MigrationPlan create karo — vJailbreak automatically source VM read karega, VMDK convert karega QCOW2 mein, aur OpenStack par deploy karega. 13 steps ka pipeline automatically chalega.
+    </div>
+
+    <!-- Pipeline SVG -->
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:20px;overflow-x:auto">
+      <svg viewBox="0 0 1060 80" width="100%" style="min-width:700px">
+        <defs>
+          <marker id="pm" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3z" fill="#6b7a96"/></marker>
+        </defs>
+
+        <!-- Steps -->
+        <rect x="0"   y="20" width="75" height="40" rx="6" fill="#f59e0b18" stroke="#f59e0b" stroke-width="1"/>
+        <text x="37"  y="38" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#f59e0b" font-weight="700">VMDK</text>
+        <text x="37"  y="52" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6b7a96">source disk</text>
+
+        <line x1="76"  y1="40" x2="96"  y2="40" stroke="#6b7a96" stroke-width="1.5" marker-end="url(#pm)"/>
+
+        <rect x="97"  y="20" width="80" height="40" rx="6" fill="#a855f718" stroke="#a855f7" stroke-width="1"/>
+        <text x="137" y="38" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#a855f7" font-weight="700">Snapshot</text>
+        <text x="137" y="52" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6b7a96">consistency</text>
+
+        <line x1="178" y1="40" x2="198" y2="40" stroke="#6b7a96" stroke-width="1.5" marker-end="url(#pm)"/>
+
+        <rect x="199" y="15" width="90" height="50" rx="6" fill="#a855f730" stroke="#a855f7" stroke-width="2"/>
+        <text x="244" y="36" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#a855f7" font-weight="700">VDDK</text>
+        <text x="244" y="50" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#e1e7f0">Block Read</text>
+        <text x="244" y="62" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6b7a96">NBD protocol</text>
+
+        <line x1="290" y1="40" x2="310" y2="40" stroke="#6b7a96" stroke-width="1.5" marker-end="url(#pm)"/>
+
+        <rect x="311" y="20" width="80" height="40" rx="6" fill="#06b6d418" stroke="#06b6d4" stroke-width="1"/>
+        <text x="351" y="38" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#06b6d4" font-weight="700">nbdkit</text>
+        <text x="351" y="52" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6b7a96">stream</text>
+
+        <line x1="392" y1="40" x2="412" y2="40" stroke="#6b7a96" stroke-width="1.5" marker-end="url(#pm)"/>
+
+        <rect x="413" y="15" width="100" height="50" rx="6" fill="#22c55e30" stroke="#22c55e" stroke-width="2"/>
+        <text x="463" y="34" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#22c55e" font-weight="700">virt-v2v</text>
+        <text x="463" y="48" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#e1e7f0">VMDK→QCOW2</text>
+        <text x="463" y="60" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6b7a96">+driver swap</text>
+
+        <line x1="514" y1="40" x2="534" y2="40" stroke="#6b7a96" stroke-width="1.5" marker-end="url(#pm)"/>
+
+        <rect x="535" y="20" width="80" height="40" rx="6" fill="#0ea5e918" stroke="#0ea5e9" stroke-width="1"/>
+        <text x="575" y="38" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#0ea5e9" font-weight="700">Glance</text>
+        <text x="575" y="52" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6b7a96">img upload</text>
+
+        <line x1="616" y1="40" x2="636" y2="40" stroke="#6b7a96" stroke-width="1.5" marker-end="url(#pm)"/>
+
+        <rect x="637" y="20" width="80" height="40" rx="6" fill="#0ea5e918" stroke="#0ea5e9" stroke-width="1"/>
+        <text x="677" y="38" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#0ea5e9" font-weight="700">Nova</text>
+        <text x="677" y="52" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6b7a96">VM create</text>
+
+        <line x1="718" y1="40" x2="738" y2="40" stroke="#6b7a96" stroke-width="1.5" marker-end="url(#pm)"/>
+
+        <rect x="739" y="20" width="80" height="40" rx="6" fill="#0ea5e918" stroke="#0ea5e9" stroke-width="1"/>
+        <text x="779" y="38" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#0ea5e9" font-weight="700">Neutron</text>
+        <text x="779" y="52" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6b7a96">network</text>
+
+        <line x1="820" y1="40" x2="840" y2="40" stroke="#6b7a96" stroke-width="1.5" marker-end="url(#pm)"/>
+
+        <rect x="841" y="15" width="90" height="50" rx="6" fill="#22c55e30" stroke="#22c55e" stroke-width="2"/>
+        <text x="886" y="36" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#22c55e" font-weight="700">✅ DONE</text>
+        <text x="886" y="50" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#e1e7f0">VM Active</text>
+        <text x="886" y="62" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6b7a96">on OpenStack</text>
+      </svg>
+    </div>
+
+    <div class="timeline">
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--vj)">1</div>
+        <div class="tl-step-num">STEP 4.1</div>
+        <div class="tl-step-title">OpenStack Provider Network Setup Karo</div>
+        <div class="tl-step-desc">Migrated VMs ko direct network access chahiye — provider network create karo pehle.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button"><span class="k">source</span> /etc/kolla/admin-openrc.sh
+
+<span class="c"># Provider network create</span>
+<span class="k">openstack</span> network create \
+  --provider-network-type flat \
+  --provider-physical-network physnet1 \
+  --external \
+  provider-net
+
+<span class="c"># Subnet create — ESXi same range mein</span>
+<span class="k">openstack</span> subnet create \
+  --network provider-net \
+  --subnet-range 172.17.44.0/24 \
+  --gateway 172.17.44.1 \
+  --allocation-pool start=172.17.44.210,end=172.17.44.250 \
+  provider-subnet</div>
+        <div class="tech-row"><span class="tech os">Neutron</span><span class="tech os">Provider Network</span><span class="tech os">Flat network type</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--vj)">2</div>
+        <div class="tl-step-num">STEP 4.2</div>
+        <div class="tl-step-title">MigrationPlan Create Karo</div>
+        <div class="tl-step-desc">Ye CRD create karte hi migration automatically shuru ho jati hai — source VM, target OS, network mapping sab yahan define karo.</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button"><span class="c"># migrationplan.yaml</span>
+apiVersion: vjailbreak.k8s.pf9.io/v1alpha1
+kind: MigrationPlan
+metadata:
+  name: ubuntu24-migration
+  namespace: vjailbreak
+spec:
+  migrationTemplate:
+    virtv2vContainerImage: "registry.../v2v-helper:latest"
+    source:
+      vmwareRef:
+        name: ubuntu24.04
+      datacenter: ha-datacenter
+    target:
+      openstackRef:
+        name: <span class="h">kolla-openstack</span>
+      networkMapping:
+        - source: <span class="v">"VM Network"</span>
+          target: <span class="v">"provider-net"</span>
+      flavorRef: <span class="v">"m1.medium"</span>
+    migrationStrategy:
+      type: cold   <span class="c"># Start with cold migration</span>
+
+<span class="c"># Apply karo</span>
+<span class="k">kubectl</span> apply -f migrationplan.yaml</div>
+        <div class="tech-row"><span class="tech vj">MigrationPlan CRD</span><span class="tech vj">Cold Migration</span><span class="tech vj">Network mapping</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--vj)">3</div>
+        <div class="tl-step-num">STEP 4.3</div>
+        <div class="tl-step-title">Migration Progress Monitor Karo</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button"><span class="c"># Live watch</span>
+<span class="k">kubectl</span> get migrationplan ubuntu24-migration -n vjailbreak -w
+
+<span class="c"># Logs dekhte raho</span>
+<span class="k">kubectl</span> logs -n vjailbreak -l app=migration-controller -f
+
+<span class="c"># Events dekhte raho</span>
+<span class="k">kubectl</span> get events -n vjailbreak --sort-by='.lastTimestamp'
+
+<span class="c"># OpenStack side pe progress</span>
+<span class="k">openstack</span> image list       <span class="c"># QCOW2 upload ho raha hai</span>
+<span class="k">openstack</span> server list      <span class="c"># VM create ho rahi hai</span></div>
+        <div class="callout" style="border-left-color:var(--vj)">
+          Large VMs ke liye ghante bhi lag sakte hain — disk size pe depend karta hai. ubuntu24.04 ka disk small hoga — 30-60 min mein complete.
+        </div>
+      </div>
+
+      <div class="tl-step" style="border-color:var(--green)">
+        <div class="tl-dot" style="background:var(--green)">✓</div>
+        <div class="tl-step-num">VERIFY 4</div>
+        <div class="tl-step-title">Migration Status Check</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button"><span class="c"># MigrationPlan status</span>
+<span class="k">kubectl</span> describe migrationplan ubuntu24-migration -n vjailbreak
+<span class="c"># Phase: Completed hona chahiye</span>
+
+<span class="c"># OpenStack mein VM check</span>
+<span class="k">openstack</span> server list
+<span class="c"># ubuntu24 ACTIVE dikhna chahiye</span></div>
+        <div class="callout go" style="margin-top:8px"><strong>✅ Phase 4 Done!</strong> Migration complete. Ab verify karo.</div>
+      </div>
+
+    </div>
+  </div><!-- panel-3 end -->
+
+  <!-- PANEL 4 — Verify -->
+  <div class="panel" id="panel-4">
+    <div class="callout go">
+      <strong>Goal:</strong> Migrated VM running hai ya nahi — ping, SSH, service check karke confirm karo. Phir Satyabhan ko screenshots + demo do.
+    </div>
+
+    <div class="timeline">
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--green)">1</div>
+        <div class="tl-step-num">STEP 5.1</div>
+        <div class="tl-step-title">OpenStack Horizon Se VM Check Karo</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button"><span class="c"># Browser:</span>
+http://172.17.44.200
+<span class="c"># Compute → Instances → ubuntu24 → ACTIVE ✅</span>
+
+<span class="c"># CLI:</span>
+<span class="k">openstack</span> server show ubuntu24
+<span class="c"># status: ACTIVE
+# power_state: Running</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--green)">2</div>
+        <div class="tl-step-num">STEP 5.2</div>
+        <div class="tl-step-title">Network Connectivity Verify Karo</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button><span class="c"># VM ka IP note karo</span>
+<span class="k">openstack</span> server show ubuntu24 | grep addresses
+<span class="c"># addresses: provider-net=172.17.44.210</span>
+
+<span class="c"># Ping test</span>
+<span class="k">ping</span> 172.17.44.210
+
+<span class="c"># SSH test</span>
+<span class="k">ssh</span> ubuntu@172.17.44.210
+
+<span class="c"># Inside migrated VM — verify same OS</span>
+<span class="k">uname</span> -a
+<span class="k">cat</span> /etc/os-release
+<span class="k">hostname</span></div>
+      </div>
+
+      <div class="tl-step">
+        <div class="tl-dot" style="background:var(--green)">3</div>
+        <div class="tl-step-num">STEP 5.3</div>
+        <div class="tl-step-title">Before vs After Comparison</div>
+        <div class="snippet"><button class="copy-btn" onclick="cp(this)">Copy</button"><span class="c">BEFORE Migration:
+ESXi (172.17.44.116)
+└── ubuntu24.04 → VMDK format → Running on VMware
+
+AFTER Migration:
+OpenStack (172.17.44.200)
+└── ubuntu24 → QCOW2 format → Running on KVM/Nova
+    Same OS, Same data, Same apps ✅
+    
+ESXi:
+└── ubuntu24.04 → Still exists (cold migration — powered off)
+    Power ON karo agar rollback chahiye</span></div>
+      </div>
+
+      <div class="tl-step" style="border-color:var(--green);background:var(--s2)">
+        <div class="tl-dot" style="background:var(--green)">🎉</div>
+        <div class="tl-step-num">DELIVERABLES FOR SATYABHAN SIR</div>
+        <div class="tl-step-title">Ye 4 Cheezein Dikhao</div>
+        <div class="g2" style="margin-top:12px">
+          <div class="card">
+            <div class="card-title" style="color:var(--os)">1. OpenStack Running</div>
+            <div class="card-sub"><code>openstack service list</code> output<br>Horizon dashboard screenshot<br>docker ps on OpenStack VM</div>
+          </div>
+          <div class="card">
+            <div class="card-title" style="color:var(--vj)">2. vJailbreak Running</div>
+            <div class="card-sub"><code>kubectl get pods -n vjailbreak</code><br>Migration controller running<br>CRDs list</div>
+          </div>
+          <div class="card">
+            <div class="card-title" style="color:var(--src)">3. VMware Discovery</div>
+            <div class="card-sub"><code>kubectl get vmwaremachine</code><br>ESXi VM list in vJailbreak UI<br>ubuntu24.04 listed</div>
+          </div>
+          <div class="card">
+            <div class="card-title" style="color:var(--green)">4. Migration Complete</div>
+            <div class="card-sub"><code>openstack server list</code> → ACTIVE<br>SSH into migrated VM<br><code>uname -a</code> same OS confirm</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- panel-4 end -->
+
+  </div><!-- #steps end -->
+
+  <!-- ════════════════════════════════════════
+       FINAL RESULT
+  ════════════════════════════════════════ -->
+  <div id="result"></div>
+  <hr class="div">
+  <div class="sec-label">Final Result</div>
+  <div class="sec-title">Before → After</div>
+
+  <div class="result-grid">
+    <div class="result-box" style="border-color:var(--esxi)">
+      <div style="font-size:11px;font-weight:700;color:var(--esxi);margin-bottom:12px;font-family:'JetBrains Mono',monospace">BEFORE — ESXi Only</div>
+      <div style="font-size:13px;color:var(--muted);line-height:2">
+        ESXi (172.17.44.116)<br>
+        &nbsp;&nbsp;└── <span style="color:var(--src)">ubuntu24.04</span> <span class="badge sr">VMDK</span><br>
+        &nbsp;&nbsp;└── rhel92 <span class="badge sr">VMDK</span><br>
+        &nbsp;&nbsp;└── windows-01 <span class="badge sr">VMDK</span><br>
+        &nbsp;&nbsp;└── openshift-master-1 <span class="badge sr">VMDK</span>
+      </div>
+    </div>
+
+    <div class="result-arrow">
+      <div class="ra-line"></div>
+      <div style="font-size:18px">⟳</div>
+      <div class="ra-label">vJailbreak<br>Migration</div>
+      <div class="ra-line"></div>
+    </div>
+
+    <div class="result-box" style="border-color:var(--os)">
+      <div style="font-size:11px;font-weight:700;color:var(--os);margin-bottom:12px;font-family:'JetBrains Mono',monospace">AFTER — OpenStack Target</div>
+      <div style="font-size:13px;color:var(--muted);line-height:2">
+        OpenStack (172.17.44.200)<br>
+        &nbsp;&nbsp;└── <span style="color:var(--green)">ubuntu24</span> <span class="badge gr">QCOW2 · ACTIVE ✅</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Same OS, same data<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;KVM/Nova pe running<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;IP: 172.17.44.210
+      </div>
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <div class="status-item">
+      <div class="status-dot" style="background:var(--os)"></div>
+      <span class="status-label">VM 1</span>
+      <span class="status-val">OpenStack (Kolla Ansible)</span>
+    </div>
+    <div class="status-item">
+      <div class="status-dot" style="background:var(--vj)"></div>
+      <span class="status-label">VM 2</span>
+      <span class="status-val">vJailbreak (K3s + VDDK)</span>
+    </div>
+    <div class="status-item">
+      <div class="status-dot" style="background:var(--src)"></div>
+      <span class="status-label">Source</span>
+      <span class="status-val">ubuntu24.04 (ESXi)</span>
+    </div>
+    <div class="status-item">
+      <div class="status-dot" style="background:var(--green)"></div>
+      <span class="status-label">Result</span>
+      <span class="status-val">ubuntu24 running on OpenStack ✅</span>
+    </div>
+    <div class="status-item" style="margin-left:auto">
+      <span class="status-label">Total VMs on ESXi</span>
+      <span class="status-val" style="color:var(--esxi)">3 (OS + vJB + Source)</span>
+    </div>
+  </div>
+
+</div><!-- wrapper end -->
+
+<script>
+function showPhase(idx) {
+  document.querySelectorAll('.phase-item').forEach((el,i) => {
+    el.classList.toggle('active', i === idx);
+  });
+  document.querySelectorAll('.panel').forEach((el,i) => {
+    el.classList.toggle('active', i === idx);
+  });
+}
+
+function cp(btn) {
+  const pre = btn.closest('.snippet').querySelector('*:not(button)') || btn.parentElement;
+  const code = (btn.parentElement.innerText || '').replace('Copy','').replace('Copied!','').trim();
+  navigator.clipboard.writeText(code).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+}
+</script>
+</body>
+</html>
